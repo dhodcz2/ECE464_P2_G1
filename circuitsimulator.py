@@ -1,24 +1,44 @@
 from _collections import OrderedDict
+from typing import List
+
 import nodes
 import exceptions
 from re import match
 
 
+def generate_line(node: nodes.Node) -> str:
+    """
+    Parameters
+    ----------
+    node: nodes.Node
+        The node to for which a text line is to be generated
+
+    Returns
+    -------
+    str:
+        A line representing relevant information for a node.
+
+    """
+    line: str = node.type.ljust(11) + \
+                node.name.ljust(8) + \
+                (node.gate_type.ljust(8) if node.gate_type else "" + ', '.join(node.input_names)).ljust(20) + \
+                str(node.value).ljust(3)
+    return line
+
 class CircuitSimulator(object):
     class IterationPrinter(object):
-        def generate_line(self, node: nodes.Node):
-            line1 = node.type
-            line2 = node.name
-            line3 = node.gate_type.ljust(8) if node.gate_type else ""
-            line3 += ', '.join(node.input_names)
-            line4 = str(node.value)
-            line = line1.ljust(11) + line2.ljust(8) + line3.ljust(20) + line4.ljust(3)
-            return line
+        """
+        An abstraction that allows for more compact printing of nodes.
+        When the IterationPrinter is initialized with nodes, it generates an
+        informative list of strings corresponding to the nodes. Then,
+        call() is run to append to the end of a line, a new chronological node value.
+        """
 
-        def __init__(self, nodes):
+        def __init__(self, _nodes: List[nodes.Node]):
             self.iteration = 0
-            self.lines = [self.generate_line(node) for node in nodes]
-            header = "Type".ljust(8) + "Variable".ljust(11) + "Logic".ljust(8) + "Inputs".ljust(9) + "Initial".ljust(3)
+            self.lines = [generate_line(node) for node in _nodes]
+            header = "Type".ljust(8) + "Variable".ljust(11) + \
+                     "Logic".ljust(8) + "Inputs".ljust(9) + "Initial".ljust(3)
             self.lines.insert(0, header)
 
         def __iter__(self):
@@ -31,15 +51,17 @@ class CircuitSimulator(object):
                 string += line + "\n"
             return string
 
-        def __call__(self, nodes):
+        def __call__(self, _nodes):
             self.iteration += 1
             self.lines[0] += "\t" + str(self.iteration)
             i = 0
-            for node in nodes:
+            for node in _nodes:
                 self.lines[i + 1] += "\t" + str(node.value)
                 i += 1
 
     class LineParser(object):
+        """Parses a circuit.bench file"""
+
         def __init__(self, bench):
             self.file = bench
             self.pattern_gate = "(\S+) = ([A-Z]+)\((.+)\)"
@@ -49,14 +71,20 @@ class CircuitSimulator(object):
             self.output_names = []
             self.gate_map = {"AND": nodes.AndGate, "OR": nodes.OrGate, "NAND": nodes.NandGate, "XNOR": nodes.XnorGate,
                              "NOR": nodes.NorGate, "BUFF": nodes.BuffGate, "XOR": nodes.XorGate, "NOT": nodes.NotGate}
+            self.d
 
         def parse_file(self):
+            """
+            Parses all the lines in a file
+            :return: Returns a LineParser object to be referenced by the outside class
+            """
             with open(self.file) as f:
                 for line in f:
                     self.parse_line(line)
             return self
 
         def parse_line(self, line: str):
+
             if groups := match(self.pattern_gate, line):
                 name = groups.group(1)
                 gate_type = self.gate_map[groups.group(2)]
@@ -80,6 +108,23 @@ class CircuitSimulator(object):
                 raise exceptions.ParseLineError(line)
 
     class Nodes(object):
+        """
+        A list of ordered dictionaries; allows for user to reference a specific node by name, iterate across
+        the nodes in order of input_nodes, intermediate_nodes, and output_nodes, or directly access those node subsets.
+
+        Attributes:
+            input_nodes (OrderedDict):
+            intermediate_nodes (OrderedDict):
+            output_nodes (OrderedDict):
+        """
+        def __doc__(self):
+            """Data structure abstraction that is essentially a list of ordered dictionaries;
+            allows for the user to reference a specific node by name, iterate across the nodes in order
+            of input_nodes, intermediate_nodes, and output_nodes, or directly access those node subsets.
+
+
+            """
+
         def __init__(self):
             self.input_nodes = OrderedDict()
             self.intermediate_nodes = OrderedDict()
@@ -125,6 +170,8 @@ class CircuitSimulator(object):
         self.faulty_node = None
 
     def __next__(self):
+        """In each iteration, the nodes' values are updated to represent the result of the
+        input nodes with their logic."""
         self.iteration += 1
         updated_nodes = 0
         for node in self.nodes:
@@ -145,12 +192,13 @@ class CircuitSimulator(object):
         return self
 
     def __str__(self):
+        """Returns a string of all the nodes"""
         string = ''
         for node in self.nodes:
             string += f"{node}\n"
 
     def compile(self, lineparser: LineParser):
-        # Compile a list of nodes from the parsed gates
+        """Compiles a functioning circuit of **Node** nodes from a LineParser object"""
         for gate in lineparser.gates:
             node = nodes.Node(gate)
             if node.name in lineparser.input_names:
@@ -168,13 +216,12 @@ class CircuitSimulator(object):
                 self.nodes[input_name].output_nodes.append(self.nodes[node.name])
 
     def prompt(self):
+        """Prompts user for input values"""
         line = self.args.testvec
         if not line:
             line = input("Start simulation with input values (return to exit):")
             if not line:
                 return False
-        # adding D or D' implementation
-        # remove spaces
         input_values = [letter for letter in list(str(line)) if letter != ' ']
         final_inputs = []
         for chars in range(len(input_values)):  # check for D'
@@ -193,6 +240,7 @@ class CircuitSimulator(object):
         return True
 
     def simulate(self):
+        """Simulates the circuit consisting of **Node** nodes."""
         iteration_printer = self.IterationPrinter(self.nodes)
         for iteration in self:
             iteration_printer(self.nodes)
@@ -250,6 +298,6 @@ class CircuitSimulator(object):
                 print(f"Undetected with {self.args.testvec}")
 
     def reset(self):
+        """Iterate across all the nodes in the circuit, resetting them if they were made to be faulty."""
         for node in self.nodes:
             node.reset()
-

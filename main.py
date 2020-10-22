@@ -22,4 +22,3 @@ if __name__ == '__main__':
     fault_list = circuit_simulator.fault_list(log=True)
 
 
-

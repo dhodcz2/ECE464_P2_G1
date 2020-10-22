@@ -1,11 +1,15 @@
 import copy
 import unittest
 
-from typing import List
+from typing import List, Type
 
 
 class Value(object):
-    # TODO: Add D and D' to possible values to support fault propagation
+    """An abstraction to be used in D-logic for the propagation of values across a circuit.
+    Attributes:
+        value: Must be 0, 1, D, D', or U.
+    """
+
     def __init__(self, value: str):
         try:
             value = value.upper()
@@ -91,6 +95,19 @@ class Gate(object):
 
 
 class Node(object):
+    """A node in the circuit.
+    Attributes:
+        gate(Gate): A logic gate
+        name(str): The name of the node
+        gate_type: The type of the gate
+        input_names(List[str]): The names of the inputs
+        value(Value): The current value of the gate
+        value_new(Value): The value of the gate once update() is called
+        type(str): The node type; input, output, or wire
+        output_nodes(List[Node]): A List of references to the output nodes.
+        input_nodes(List[Node]): A List of references to the input nodes.
+    """
+
     def __init__(self, gate: Gate):
         self.gate = gate
         self.name = gate.name
@@ -98,10 +115,10 @@ class Node(object):
         self.update = gate.update
         self.logic = gate.logic
         self.input_names = gate.input_names
-        self.value = gate.value
         self.type = 'wire'
         self.output_nodes = gate.output_nodes
         self.input_nodes = gate.input_nodes
+        self.sa = None
 
     @property
     def value_new(self):
@@ -151,11 +168,39 @@ class Node(object):
         result += "equals " + str(self.value)
         return result
 
+    def logic(self):
+        self.gate.logic()
+        if self.sa == 1 and self.value_new == 0:
+            self.value_new = Value("D'")
+        if self.sa == 0 and self.value_new == 1:
+            self.value_new = Value("D")
+
+    def stuck_at(self, value: 'Value'):
+        if value != 1 and value != 0:
+            raise ValueError(f"Invalid stuck-at value: {value}")
+        self.sa = value
+
+    def create_fault(self, stuck_at: 'Value', input_fault: 'Node' = None):
+        # Create a shallow copy for the fault
+        if input_fault:
+            faulty_node: Node
+            faulty_node = copy.copy(input_fault)
+            faulty_node.value = stuck_at
+            self.input_nodes.remove(input_fault)
+            self.input_nodes.append(faulty_node)
+        # else:
+        #     faulty_node = copy.copy(self)
+        #     faulty_node.value = stuck_at
+
 
 class AndGate(Gate):
     def __init__(self, name, inputs=[]):
         super(AndGate, self).__init__(name, inputs)
         self.type = "AND"
+        self.sa = None
+
+    def stuck_at(self, sa: Value):
+        self.sa = sa
 
     def logic(self):
         if any(node == 0 for node in self.input_nodes):

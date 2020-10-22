@@ -1,15 +1,39 @@
-from typing import List, Union
+from typing import List, Union, Dict
 
 import circuitsimulator
-import nodes
+from nodes import Value, Node
+from testvector import TestVector, TestVectorSeed
+import copy
 
 
 class Fault(object):
-    """Can be typecast to str """
+    """ Fault abstraction as an alternative to working with strings
+    
+    Attributes:
+        node (Node): Reference to the node that the fault is occurring around.
+        _input (Node, None): Reference to the input node that is faulty, if any.
+        stuck_at (Value): The value that the input is stuck it, if there is an input;
+            otherwise, the value the node is stuck at.
 
-    def __init__(self, node: nodes.Node, input: nodes.Node = None, stuck_at: nodes.Value = None, ):
+    Raises:
+        ValueError:
+            if `input` is not an input_node of `node`, or if `stuck_at` is not a correct value.
+    """
+
+    def __init__(self, node: Node, _input: Node = None, stuck_at: Value = None, ):
+        """
+        Args:
+            node (Node): Reference to the node that the fault is occurring around.
+            _input (Node, None): Reference to the input node that is faulty, if any.
+                stuck_at (Value): The value that the input is stuck it, if there is an input;
+            otherwise, the value the node is stuck at.
+        """
+        if _input not in node.input_nodes:
+            raise ValueError(f"{_input.name} not in {node.name} inputs")
+        if stuck_at != Value("D") and stuck_at != Value("D'"):
+            raise (ValueError(f"{stuck_at} is not a correct fault value"))
         self.node = node
-        self.input = input
+        self.input = _input
         self.stuck_at = stuck_at
 
     def __str__(self):
@@ -20,23 +44,22 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
     def __init__(self, args):
         self.args = args
 
-
     def fault_list(self, log=False) -> List[Fault]:
-        """@param log: log the results in a text file"""
+        """Generate the full list of single-stuck-at faults (without repetition)"""
         result: List[Fault] = []
-        node: nodes.Node
+        node: Node
         # TODO: There may be more logic to this than just output fault and input faults.
         for node in self.nodes:
-            result.append(Fault(node, stuck_at=nodes.Value("D")))
-            result.append(Fault(node, stuck_at=nodes.Value("D'")))
-            input_node: nodes.Node
+            result.append(Fault(node, stuck_at=Value("D")))
+            result.append(Fault(node, stuck_at=Value("D'")))
+            input_node: Node
             for input_node in node.input_nodes:
-                result.append(Fault(node, input_node, nodes.Value("D")))
-                result.append(Fault(node, input_node, nodes.Value("D'")))
+                result.append(Fault(node, input_node, Value("D")))
+                result.append(Fault(node, input_node, Value("D'")))
         if log:
             with open(self.args.faultlist, 'w') as f:
                 # TODO: this could probably be done better
-                f.write(result)
+                f.write(str(result))
         return result
 
     def create_fault(self, fault: Union[Fault, str]):
@@ -53,9 +76,9 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
             parameters = fault.split('-')
             fault = Fault(
                 node=self.nodes[parameters[0]],
-                input=self.nodes[parameters[1]] if parameters[2] else None,
-                stuck_at=nodes.Value("D") if parameters[2] == '0' else nodes.Value("D'") if parameters[2]
-                else nodes.Value("D") if parameters[1] == '0' else nodes.Value("D'")
+                _input=self.nodes[parameters[1]] if parameters[2] else None,
+                stuck_at=Value("D") if parameters[2] == '0' else Value("D'") if parameters[2]
+                else Value("D") if parameters[1] == '0' else Value("D'")
             )
         if fault.input:
             pass
@@ -67,32 +90,61 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
             fault.node.update = faulty_update
             fault.node.value = fault.stuck_at
 
-    def detect_faults(self, test_vectors: List[str]) -> List[str]:
-        """
-        Return a list of valid test vectors
-        """
-        result: List[str] = []
-        test_vector: str
-        for test_vector in test_vectors:
-            if len(test_vector) != len(self.nodes.input_nodes):
-                if len(test_vector) < len(self.nodes.input_nodes):
-                    raise ValueError(f"{test_vector} too small")
-                else:
-                    raise ValueError(f"{test_vector} too large")
-            input_node: nodes.Node
-            value: str
-            for input_node, value in zip(self.nodes.input_nodes, [value for value in test_vector]):
-                input_node.value = nodes.Value(value)
-            #             TODO: logging
-            iteration_printer = self.IterationPrinter(self.nodes)
-            for iteration in self:
-                iteration_printer(self.nodes)
-            output_node: nodes.Node
-            # Value objects are initialized outside the for loop to save CPU
-            stuck_at_0 = nodes.Value("D")
-            stuck_at_1 = nodes.Value("D'")
-            for output_node in self.nodes.output_nodes:
-                if output_node.value == stuck_at_0 or output_node.value == stuck_at_1:
-                    result.append(test_vector)
+    # Inputs a list a test vectors
+    # Show the number of faults covered by each test vector
+    #
+
+    def detect_fault(self, test_vector: TestVector) -> bool:
+        """Returns: True if, when applying the given test vector, a fault may be detected"""
+        sa_0 = Value(0)
+        sa_1 = Value(1)
+        for input_node, value in zip(self.nodes.input_nodes, test_vector):
+            input_node.value = value
+        self.simulate()
+        for output_node in self.nodes.output_nodes:
+            if output_node == sa_0 or output_node == sa_1:
+                return True
+        return False
+
+    def detect_faults(self, test_vector: TestVector, faults: List[Fault]) -> List[Fault]:
+        """Returns: A list of the given faults that may be detected by the given test vector."""
+        assert len(test_vector) == len(self.nodes.input_nodes)
+        result: List[Fault] = []
+        for fault in faults:
+            self.create_fault(fault)
+            if self.detect_fault(test_vector):
+                result.append(fault)
+            self.reset()
         return result
 
+    def fault_coverage(self, test_vectors: List[TestVector], faults: List[Fault]) \
+            -> List[Dict[{TestVector: List[Fault]}], List[Fault]]:
+        """
+
+        Args:
+            test_vectors (List[TestVector]): A list of test vectors to be iterated across.
+            faults (List[Fault]): A list of faults to be subiterated across.
+
+        Note:
+            Perhaps to professor: Is iteration across each fault, across each test vector, computationally problematic?
+            The complexity of this algorithm is 0(n^2), is that an issue?
+
+        Returns:
+            A Vector with:
+                [0] (Dict[{TestVector: List[Fault]}]: A list of faults covered by each of the test vectors
+                [1] (List[Fault]): The remaining list of faults.
+        """
+        # result: Dict[{TestVector: List[Fault]}]
+        fault_coverage: Dict[{TestVector: List[Fault]}] = {}
+        remaining_faults = copy.copy(faults)
+        for test_vector in test_vectors:
+            faults_detected = self.detect_faults(test_vector, faults)
+            # TODO: Most efficient way of removing list entries that are
+            # TODO: present in both faults_detected and remaining_faults
+            fault_coverage[test_vector] = faults_detected
+
+    def simulate(self):
+        """Simulates the circuit consisting of **Node** nodes."""
+        for iteration in self:
+            #  TODO: Log the iteration
+            pass
