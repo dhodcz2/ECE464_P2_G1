@@ -13,8 +13,16 @@ class TestVector(object):
 
     def __str__(self):
         # TODO: Return a string representation of the test vector, each 4 bits have a space
-        "0001 0010 0011 0100"
-        pass
+        #"0001 0010 0011 0100"
+        a = 0
+        temp = ''
+        for value in self.values:
+            temp += value # TODO: change to value in case it doesn't work
+            a += 1
+            if (a % 4 == 0):
+                temp += ' '
+        return temp
+
 
     def __iter__(self):
         # TODO: Use the yield keyword to create an iterable, returning the bits of the object
@@ -23,11 +31,18 @@ class TestVector(object):
         # bit: Value
         # for bit in test_vector:
         #     assert bit == 1
-        pass
+        bit: Value
+        for bit in self.values:
+            assert bit == '1' or bit == '0'
+            yield bit
+            # how will this end in a loop externally, perhaps use the function in the for loop condition
+
 
     def __len__(self):
-        pass
         # TODO: return length of values
+        return len(self.values)
+
+
 
 
 def rotate_left(number: int, by: int, size: int) -> int:
@@ -42,17 +57,29 @@ class TestVectorSeed(object):
                 raise ValueError(f"Invalid tap value: {tap}")
 
         self.seed = seed
-        self.seed_bits = n_bit if n_bit > seed.bit_length() else seed.bit_length()
+        self.seed_bits = n_bit #if n_bit > seed.bit_length() else seed.bit_length()
         self.bits = n_bit
         self.taps = taps
+        if seed.bit_length() > n_bit:
+            self.seed = self.seed >> seed.bit_length() - n_bit
 
     def __str__(self):
-        # TODO: See TestVector.__str__()
-        pass
+        # TODO: See TestVector.__str__() Check with Daniel
+        a = 0
+        temp = 0
+        tv = bin(self.seed)[2:]
+        for char in tv:
+            temp += char
+            a += 1
+            if (a % 4 == 0):
+                temp += ' '
+        return temp
 
     def __call__(self) -> TestVector:
         # TODO: Implement LFSR, updating self.seed and generating a test vector
+
         pass
+
 
     def update_seed(self):
         # TODO: Rotate seed, and apply taps
