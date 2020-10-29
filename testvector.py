@@ -1,6 +1,10 @@
 from typing import List, Union
 
 from nodes import Value
+import nodes
+from nodes import Node
+
+
 
 
 class TestVector(object):
@@ -9,6 +13,7 @@ class TestVector(object):
         for char in string:
             assert char == '0' or char == '1'
             bit = Value(char)
+
             self.values.append(bit)
 
     def __str__(self):
@@ -19,10 +24,8 @@ class TestVector(object):
     def __iter__(self):
         # TODO: Use the yield keyword to create an iterable, returning the bits of the object
         # TODO: This should work on an outer scope:
-        # test_vector = TestVector('1111')
-        # bit: Value
-        # for bit in test_vector:
-        #     assert bit == 1
+        for value in self.values:
+            yield
         pass
 
     def __len__(self):
