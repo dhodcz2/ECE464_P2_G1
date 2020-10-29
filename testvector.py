@@ -1,5 +1,5 @@
 from typing import List, Union
-
+import numpy as np
 from nodes import Value
 
 
@@ -49,6 +49,32 @@ def rotate_left(number: int, by: int, size: int) -> int:
     return (number << by % size) & (2 ** size) | \
            ((number & (2 ** size - 1)) >> (size - (by % size)))
 
+class LFSR(object):
+    def __init__(self, q,n,h,tv):
+        self.q = q
+        self.n = n
+        self.h = h
+        self.tv = tv
+        
+    def poly(self): -> tv
+        arrH =   np.array([[ 0, 0, 0, 0, 0, 0, 0, 1 ],
+                  [ 1, 0, 0, 0, 0, 0, 0, h[1] ],
+                  [ 0, 1, 0, 0, 0, 0, 0, h[2] ],
+                  [ 0, 0, 1, 0, 0, 0, 0, h[3] ],
+                  [ 0, 0, 0, 1, 0, 0, 0, h[4] ],
+                  [ 0, 0, 0, 0, 1, 0, 0, h[5] ],
+                  [ 0, 0, 0, 0, 0, 1, 0, h[6] ],
+                  [ 0, 0, 0, 0, 0, 0, 1, h[7] ]], dtype=bool)
+        arrQ =   np.array([[q[0]],
+                  [q[1]],
+                  [q[2]],
+                  [q[3]],
+                  [q[4]],
+                  [q[5]],
+                  [q[6]],
+                  [q[7]]], dtype=bool)
+        qPrime = arrH.dot(arrQ)
+
 
 class TestVectorSeed(object):
     def __init__(self, seed: int, n_bit: int, taps: List[int] = None):
@@ -74,6 +100,7 @@ class TestVectorSeed(object):
             if (a % 4 == 0):
                 temp += ' '
         return temp
+
 
     def __call__(self) -> TestVector:
         # TODO: Implement LFSR, updating self.seed and generating a test vector
