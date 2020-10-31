@@ -21,6 +21,9 @@ class TestVector(object):
     def __len__(self) -> int:
         return len(self.values)
 
+    def __add__(self, other: 'TestVector') -> 'TestVector':
+        result: TestVector = TestVector()
+
 
 class LFSR(object):
     def __init__(self, q: Union[str, int]):
@@ -55,7 +58,7 @@ class LFSR(object):
     def h_array(self) -> numpy.ndarray:
         h = self.h
         return numpy.array([
-            [0, 0, 0, 0, 0, 0, 0, h[0]],
+            [0, 0, 0, 0, 0, 0, 0, 1],
             [1, 0, 0, 0, 0, 0, 0, h[1]],
             [0, 1, 0, 0, 0, 0, 0, h[2]],
             [0, 0, 1, 0, 0, 0, 0, h[3]],
@@ -82,9 +85,23 @@ class LFSR(object):
         cls._h = tuple(h)
 
     def __call__(self, *args, **kwargs) -> TestVector:
-        result = str((1 if b else 0 for b in self.h_array.dot(self.q_array)))
+        dot_product = self.h_array.dot(self.q_array)
+        binary_result = ''
+        for x in range(8):
+            if dot_product[x]:
+                binary_result += '1'
+            else:
+                binary_result += '0'
+        result = int(binary_result, 2)
         self.q = result
         return TestVector(result)
+
+        # result =
+        # self.q = int(binary_result, 2)
+        # return
+        # result = str((1 if b else 0 for b in self.h_array.dot(self.q_array)))
+        # self.q = result
+        # return TestVector(result)
 
 
 class TestVectorGenerator(object):
@@ -92,14 +109,17 @@ class TestVectorGenerator(object):
         self.input_bits = input_bits
         LFSR.taps(taps)
         seed_bits = input_bits if input_bits > seed.bit_length() else seed.bit_length()
-        lfsr_bits = seed_bits // 8 + 8
+        lfsr_bits = self.input_bits // 8 + \
+                    8 if self.input_bits % 8 else 0
         binary_seed = format(seed, f"0{lfsr_bits}b")
         self.LFSRs = [LFSR(binary_seed[lfsr_bits - n - 8: lfsr_bits - n]) for n in range(0, lfsr_bits, 8)]
 
     def __call__(self, *args, **kwargs) -> List[TestVector]:
-        test_vector_count = self.input_bits ** 2 if self.input_bits ** 2 < 100 else 100
+        test_vector_count = 2 ** self.input_bits if 2 ** self.input_bits < 100 else 100
         lfsr_count = len(self.LFSRs)
         return [self.LFSRs[n % lfsr_count]() for n in range(0, test_vector_count)]
+        # it should be first.result + second.result + third.result, and then
+
 
 
 class LFSRTest(unittest.TestCase):
@@ -114,6 +134,22 @@ class LFSRTest(unittest.TestCase):
         test_vectors = tvg()
         self.assertEqual(len(test_vectors), 16)  # Check that we got 16 test vectors
         self.assertEqual(len(test_vectors), len(set(test_vectors)))  # check that all are unique
+
+# class Counter(object):
+#     def __init__(self, seed, n_bit):
+#         self.seed = seed
+#
+#     @classmethod
+#     def
+
+# class Employee(object):
+#
+#     @classmethod
+#     def set_starting_salary(cls, salary:int):
+#         cls.starting_salary = salary
+#
+
+
 
 
 if __name__ == '__main__':
