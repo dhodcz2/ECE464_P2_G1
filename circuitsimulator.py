@@ -1,16 +1,17 @@
 from _collections import OrderedDict
-from typing import List
+from typing import List, Dict, Union, Tuple
 
 import nodes
+from nodes import Node
 import exceptions
 from re import match
 
 
-def generate_line(node: nodes.Node) -> str:
+def generate_line(node: Node) -> str:
     """
     Parameters
     ----------
-    node: nodes.Node
+    node: Node
         The node to for which a text line is to be generated
 
     Returns
@@ -25,6 +26,7 @@ def generate_line(node: nodes.Node) -> str:
                 str(node.value).ljust(3)
     return line
 
+
 class CircuitSimulator(object):
     class IterationPrinter(object):
         """
@@ -34,7 +36,7 @@ class CircuitSimulator(object):
         call() is run to append to the end of a line, a new chronological node value.
         """
 
-        def __init__(self, _nodes: List[nodes.Node]):
+        def __init__(self, _nodes: List[Node]):
             self.iteration = 0
             self.lines = [generate_line(node) for node in _nodes]
             header = "Type".ljust(8) + "Variable".ljust(11) + \
@@ -71,7 +73,6 @@ class CircuitSimulator(object):
             self.output_names = []
             self.gate_map = {"AND": nodes.AndGate, "OR": nodes.OrGate, "NAND": nodes.NandGate, "XNOR": nodes.XnorGate,
                              "NOR": nodes.NorGate, "BUFF": nodes.BuffGate, "XOR": nodes.XorGate, "NOT": nodes.NotGate}
-            self.d
 
         def parse_file(self):
             """
@@ -116,7 +117,9 @@ class CircuitSimulator(object):
             input_nodes (OrderedDict):
             intermediate_nodes (OrderedDict):
             output_nodes (OrderedDict):
+            faulty_nodes (Dict):
         """
+
         def __doc__(self):
             """Data structure abstraction that is essentially a list of ordered dictionaries;
             allows for the user to reference a specific node by name, iterate across the nodes in order
@@ -126,11 +129,12 @@ class CircuitSimulator(object):
             """
 
         def __init__(self):
-            self.input_nodes = OrderedDict()
-            self.intermediate_nodes = OrderedDict()
-            self.output_nodes = OrderedDict()
+            self.input_nodes: OrderedDict[str, Node] = OrderedDict()
+            self.intermediate_nodes: OrderedDict[str, Node] = OrderedDict()
+            self.output_nodes: OrderedDict[str, Node] = OrderedDict()
+            self.faulty_nodes: List[Tuple[Node, Node]] = []
 
-        def __contains__(self, item: nodes.Node):
+        def __contains__(self, item: Node):
             if item in self.intermediate_nodes:
                 return True
             if item in self.input_nodes:
@@ -139,7 +143,7 @@ class CircuitSimulator(object):
                 return True
             return False
 
-        def __getitem__(self, item: nodes.Node):
+        def __getitem__(self, item: Node):
             if item in self.intermediate_nodes:
                 return self.intermediate_nodes[item]
             elif item in self.input_nodes:
@@ -200,7 +204,7 @@ class CircuitSimulator(object):
     def compile(self, lineparser: LineParser):
         """Compiles a functioning circuit of **Node** nodes from a LineParser object"""
         for gate in lineparser.gates:
-            node = nodes.Node(gate)
+            node = Node(gate)
             if node.name in lineparser.input_names:
                 node.type = 'input'
                 self.nodes.input_nodes.update({node.name: node})
@@ -211,7 +215,8 @@ class CircuitSimulator(object):
                 self.nodes.intermediate_nodes.update({node.name: node})
         # Update Node member vectors input_nodes and output_nodes, which hold references to connected nodes
         for node in self.nodes:
-            for input_name in node.input_names:
+            for input_name in node.gate.input_names:
+            # for input_name in [input_node.name for input_node in node.input_nodes]
                 self.nodes[node.name].input_nodes.append(self.nodes[input_name])
                 self.nodes[input_name].output_nodes.append(self.nodes[node.name])
 
@@ -236,18 +241,19 @@ class CircuitSimulator(object):
                     final_inputs.append(input_values[chars])  # this will always be a single D
         for character, node in zip(final_inputs, self.nodes.input_nodes.values()):
             node.set(nodes.Value(character))
-        self.create_fault()
+        self.induce_fault()
         return True
 
     def simulate(self):
         """Simulates the circuit consisting of **Node** nodes."""
+
         iteration_printer = self.IterationPrinter(self.nodes)
         for iteration in self:
             iteration_printer(self.nodes)
         print(iteration_printer)
         self.detect_faults()
 
-    def create_fault(self):
+    def induce_fault(self):
         def noop():
             pass
 
@@ -257,7 +263,7 @@ class CircuitSimulator(object):
 
             if (_match := match(fault_pattern, self.args.fault)):
                 try:
-                    self.faulty_node: nodes.Node = self.nodes[_match[1]]
+                    self.faulty_node: Node = self.nodes[_match[1]]
                     value = {"0": nodes.Value('D'), "1": nodes.Value("D'")}[_match[2]]
                     self.faulty_node.set(value)
                     self.faulty_node.logic = noop
@@ -269,7 +275,7 @@ class CircuitSimulator(object):
                 if node_name == "":
                     break
                 try:
-                    self.faulty_node: nodes.Node = self.nodes[node_name]
+                    self.faulty_node: Node = self.nodes[node_name]
                 except KeyError:
                     print("Name not found in nodes")
                     continue
