@@ -3,20 +3,6 @@ from typing import List, List, Set, Union, Tuple
 from nodes import Value
 import unittest
 import copy
-from functools import wraps
-
-
-def write(name):
-    def function(func):
-        def wrapper(*args, **kwargs):
-            result = func(*args, **kwargs)
-            with open(name, 'w', newline='') as f:
-                f.writelines([f"{tv}\n" for tv in result])
-            return result
-
-        return wrapper
-
-    return function
 
 
 class TestVector(object):
@@ -27,7 +13,6 @@ class TestVector(object):
 
     def __repr__(self):
         return ''.join([str(value) for value in self.values])
-
 
     def __iter__(self) -> Value:
         for bit in self.values:
@@ -134,9 +119,6 @@ class TestVectorGenerator(object):
             for n in range(0, seed_length, 8)
         ]
 
-    # @staticmethod
-
-    # @write("_testvectors.txt")
     def __call__(self) -> List[TestVector]:
         # def __call__(self, *args, **kwargs) -> List[TestVector]:
         """Returns: A list of TestVectors using the PRPG algorithm"""

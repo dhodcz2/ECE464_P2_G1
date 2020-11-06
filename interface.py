@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import List
 
 @dataclass
 class Args:
@@ -9,5 +10,13 @@ class Args:
     counter: int
 
 def prompt_arguments() -> Args:
-    args = Args()
-    args.verbose # set
+    # fill out args
+    bench: str
+    verbose: bool
+    seed: int
+    taps: List[int]
+    counter: bool
+
+    return Args(bench=bench, verbose=verbose, seed=seed, taps=taps, counter=counter)
+
+prompt_arguments()

@@ -2,16 +2,27 @@ from faults import Fault, CircuitSimulator
 import unittest
 from testvector import TestVectorGenerator, TestVector
 import argparse
+from interface import prompt_arguments
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--bench', type=str, default='circuit.bench', help='input bench file')
     parser.add_argument('-v', '--verbose', type=bool, default=True, help='verbose simulator')
-    parser.add_argument('-s', '--seed', type=int, default=0x12345789abc, help='seed for tv generation')
+    parser.add_argument('-s', '--seed', type=str, default='0x123456789abc', help='seed for tv generation')
+    # parser.add_argument('-s', '--seed', type=int, default=0x12345789abc, help='seed for tv generation')
     parser.add_argument('-t', '--taps', type=list, default=[], help='tuple in LFSR')
     parser.add_argument('-c', '--counter', type=bool, default=False, help="Use the counter instead of PRPG")
+    parser.add_argument('-p', '--prompt', type=bool, default=True, help='prompt the user for info')
     args = parser.parse_args()
-
+    args.seed : str
+    if args.seed.startswith('0x'):
+        args.seed = int(args.seed, 16)
+    elif args.seed.startswith('0b'):
+        args.seed = int(args.seed, 2)
+    else:
+        args.seed = int(args.seed)
+    if args.prompt:
+        args = prompt_arguments()
     circuit_simulator = CircuitSimulator(args=args)
     fault_list = circuit_simulator.generate_fault_list()
     bit_length = len(circuit_simulator.nodes.input_nodes)
