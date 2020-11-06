@@ -1,7 +1,7 @@
 import unittest
 from typing import List, Type, Union, NamedTuple, Any
 from dataclasses import dataclass
-
+from copy import copy, deepcopy
 
 class Value(object):
     @property
@@ -75,15 +75,15 @@ class Value(object):
 
 class Node(object):
     def __init__(self, gate: 'Gate'):
-        self.gate = gate
-        self.gate.node = self
+        self.gate: Gate = gate
+        self.gate.node: Node = self
         # self.name: str = gate.name
         self.gate_type: str = gate.type
         self.update = gate.update
         self.logic = gate.logic
         self.type: str = 'wire'
-        self.input_nodes = []
-        self.output_nodes = []
+        self.input_nodes: List[Node] = []
+        self.output_nodes: List[Node] = []
         self.stuck_at: Union[None, Value] = None
 
     @property
@@ -126,18 +126,22 @@ class Node(object):
         # else:
         #     return False
 
-    def __str__(self):
-        return f"{self.type}\t{self.name} = {self.value}"
-
     def __repr__(self):
         return self.name
+
+    def __str__(self):
+        return f"{self.type}\t{self.name} = {self.value}"
 
     def __hash__(self):
         return hash(self.name)
 
+    # def __del__(self):
+    #     del self.gate
+
     def reset(self):
         self.value = Value('U')
         self.value_new = Value('U')
+        self.stuck_at = None
 
     def set(self, value: Value):
         self.value = value
@@ -148,16 +152,45 @@ class Node(object):
                f"equals {self.value}"
 
 
+class DummyNode(Node):
+    def __init__(self, node: Node):
+        self.genuine = node
+        gate_copy = copy(node.gate)
+        super(DummyNode, self).__init__(gate=gate_copy)
+        self.input_nodes = node.input_nodes
+
+    # @property
+    # def value(self):
+
+
+
+
+        # gate_copy = node.gate
+        # super(DummyNode, self).__init__(gate_copy)
+        # gate_copy = copy(node.gate)
+        # gate_copy = copynode.gate)
+        # gate_copy.node = self
+        # self.input_nodes = node.input_nodes
+        # gate_copy.input_nodes = node.input_nodes
+        # self.genuine = node
+
+    def __str__(self):
+        return super(DummyNode, self).__str__() + " Dummy"
+
+    def __repr__(self):
+        return super(DummyNode, self).__repr__() + " Dummy"
+
+
 class Gate(object):
     def __init__(self, name: str, inputs=[]):
         self.input_names: List[str] = inputs
         self.name: str = name
         self.type: str = ''
         self.node: Union[Node, None] = None
-        self.value: Value = Value('U')
+        self._value: Value = Value('U')
         self._value_new: Value = Value('U')
 
-    # def __hash__(self):
+
     #     return hash(self.name)
 
     def __repr__(self):
@@ -175,6 +208,8 @@ class Gate(object):
     def value(self) -> Value:
         return self.propagate(self._value)
 
+
+
     @value.setter
     def value(self, value: Value):
         self._value = value
@@ -186,12 +221,6 @@ class Gate(object):
     @value_new.setter
     def value_new(self, value: Value):
         self._value_new = value
-        # if value == 1 and self.stuck_at == 0:
-        #     self._value_new = Value("D")
-        # elif value == 0 and self.stuck_at == 1:
-        #     self._value_new = Value("D'")
-        # else:
-        #     self._value_new = value
 
     @property
     def input_nodes(self) -> List[Node]:

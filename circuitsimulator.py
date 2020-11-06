@@ -2,7 +2,7 @@ from _collections import OrderedDict
 from typing import List, Dict, Union, Tuple
 
 import nodes
-from nodes import Node
+from nodes import Node, DummyNode
 import exceptions
 from re import match
 
@@ -132,7 +132,8 @@ class CircuitSimulator(object):
             self.input_nodes: OrderedDict[str, Node] = OrderedDict()
             self.intermediate_nodes: OrderedDict[str, Node] = OrderedDict()
             self.output_nodes: OrderedDict[str, Node] = OrderedDict()
-            self.faulty_nodes: List[Tuple[Node, Node]] = []
+            self.dummy_nodes: OrderedDict[str, DummyNode] = OrderedDict()
+            # self.faulty_nodes: List[Union[Node, DummyNode]] = []
 
         def __contains__(self, item: Node):
             if item in self.intermediate_nodes:
@@ -140,6 +141,8 @@ class CircuitSimulator(object):
             if item in self.input_nodes:
                 return True
             if item in self.output_nodes:
+                return True
+            elif item in self.dummy_nodes:
                 return True
             return False
 
@@ -150,6 +153,8 @@ class CircuitSimulator(object):
                 return self.input_nodes[item]
             elif item in self.output_nodes:
                 return self.output_nodes[item]
+            elif item in self.dummy_nodes:
+                return self.dummy_nodes[item]
             raise KeyError
 
         def __iter__(self):
@@ -159,6 +164,10 @@ class CircuitSimulator(object):
                 yield node
             for node in self.output_nodes.values():
                 yield node
+            for node in self.dummy_nodes.values():
+                yield node
+            # for node in self.faulty_nodes.value():
+            #     yield node
 
         def __str__(self):
             string = ''
@@ -166,12 +175,15 @@ class CircuitSimulator(object):
                 string += f"\n{node}"
             return string
 
+        def __repr__(self):
+            return ' '.join([node for node in self])
+
+
     def __init__(self, args):
         self.nodes = self.Nodes()
         self.args = args
         self.parser = self.LineParser(args.bench)
         self.compile(self.parser.parse_file())
-        self.faulty_node = None
 
     def __next__(self):
         """In each iteration, the nodes' values are updated to represent the result of the
@@ -216,7 +228,7 @@ class CircuitSimulator(object):
         # Update Node member vectors input_nodes and output_nodes, which hold references to connected nodes
         for node in self.nodes:
             for input_name in node.gate.input_names:
-            # for input_name in [input_node.name for input_node in node.input_nodes]
+                # for input_name in [input_node.name for input_node in node.input_nodes]
                 self.nodes[node.name].input_nodes.append(self.nodes[input_name])
                 self.nodes[input_name].output_nodes.append(self.nodes[node.name])
 
