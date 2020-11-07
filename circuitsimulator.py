@@ -1,6 +1,6 @@
 from _collections import OrderedDict
 from typing import List, Dict, Union, Tuple
-
+from contextlib import contextmanager
 import nodes
 from nodes import Node, DummyNode
 import exceptions
@@ -178,11 +178,10 @@ class CircuitSimulator(object):
         def __repr__(self):
             return ' '.join([node for node in self])
 
-
-    def __init__(self, args):
+    def __init__(self, **kwargs):
         self.nodes = self.Nodes()
-        self.args = args
-        self.parser = self.LineParser(args.bench)
+        self.kwargs = kwargs
+        self.parser = self.LineParser(kwargs['bench'])
         self.compile(self.parser.parse_file())
 
     def __next__(self):
@@ -319,3 +318,4 @@ class CircuitSimulator(object):
         """Iterate across all the nodes in the circuit, resetting them if they were made to be faulty."""
         for node in self.nodes:
             node.reset()
+
