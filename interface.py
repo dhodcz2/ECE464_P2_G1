@@ -1,22 +1,13 @@
+import dataclasses
 from dataclasses import dataclass
-from typing import List
+from typing import List, Dict
 
-@dataclass
-class Args:
-    bench: str
-    verbose: bool
-    seed: int
-    taps: list
-    counter: int
 
-def prompt_arguments() -> Args:
-    # fill out args
+def prompt_arguments() -> Dict:
     bench: str
     verbose: bool
     seed: int
     taps: List[int]
     counter: bool
 
-    return Args(bench=bench, verbose=verbose, seed=seed, taps=taps, counter=counter)
-
-prompt_arguments()
+    return {"bench": bench, "verbose": verbose, "seed": seed, "taps": taps, "counter": counter}
