@@ -133,6 +133,7 @@ class CircuitSimulator(object):
             self.intermediate_nodes: OrderedDict[str, Node] = OrderedDict()
             self.output_nodes: OrderedDict[str, Node] = OrderedDict()
             self.dummy_nodes: OrderedDict[str, DummyNode] = OrderedDict()
+            self.faulty_nodes: List[Union[Node, DummyNode]] = []
             # self.faulty_nodes: List[Union[Node, DummyNode]] = []
 
         def __contains__(self, item: Node):
@@ -318,4 +319,5 @@ class CircuitSimulator(object):
         """Iterate across all the nodes in the circuit, resetting them if they were made to be faulty."""
         for node in self.nodes:
             node.reset()
+
 

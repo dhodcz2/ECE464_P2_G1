@@ -7,6 +7,7 @@ from nodes import Value, Node, DummyNode
 from testvector import TestVector, TestVectorGenerator
 import csv
 
+
 class Fault(object):
     def __init__(self, node: Node, stuck_at: Value, input_node: Node = None):
         if input_node and input_node not in node.input_nodes:
@@ -77,18 +78,36 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
 
         self.faults.append(fault)
         if fault.input_node:
-            dummy_node = DummyNode(fault.input_node)
-            dummy_node.input_nodes = fault.input_node.input_nodes
-            dummy_node.output_nodes = [fault.node]
-            dummy_node.stuck_at = fault.stuck_at
-            fault.node.input_nodes.remove(fault.input_node)
-            fault.node.input_nodes.append(dummy_node)
+            dummy_node = DummyNode(fault.input_node, fault.stuck_at)
             self.nodes.dummy_nodes.update({dummy_node.name: dummy_node})
-            # self.nodes.faulty_nodes.append(dummy_node)
-
+            if dummy_node.name == "h Dummy":
+                print()
+            dummy_node.output_nodes = [fault.node]
+            try:
+                fault.node.input_nodes.remove(fault.input_node)
+            except:
+                print()
+            fault.node.input_nodes.append(dummy_node)
+            self.nodes.faulty_nodes.append(dummy_node)
+            print()
         else:
             fault.node.stuck_at = fault.stuck_at
+            self.nodes.faulty_nodes.append(fault.node)
             # self.nodes.faulty_nodes.append(fault.node)
+
+    def clear_faults(self):
+        for faulty_node in self.nodes.faulty_nodes:
+            if type(faulty_node) == DummyNode:
+                faulty_node.output_nodes[0].input_nodes.append(faulty_node.genuine)
+                try:
+                    faulty_node.output_nodes[0].input_nodes.remove(faulty_node)
+                except:
+                    print()
+            else:
+                faulty_node.stuck_at = None
+        self.nodes.faulty_nodes.clear()
+        self.nodes.dummy_nodes.clear()
+
 
     def detect_fault(self, test_vector: TestVector) -> bool:
         """Returns: True if, when applying the given test vector, a fault may be detected"""
@@ -102,7 +121,7 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         def test(fault: Fault) -> bool:
             """Note: the entire circuit is not being reset, just the faults. I believe this can
             decrease simulation time."""
-            self.reset()
+            self.clear_faults()
             for input_node, value in zip(self.nodes.input_nodes.values(), test_vector):
                 input_node.set(value)
             self.induce_fault(fault)
@@ -132,9 +151,16 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
                 print(f"Now applying {test_vector} to the remaining {len(remaining_faults)} faults:",
                       '\n', remaining_faults, '...', '\n', sep='')
             with self.mute():
-                fault_coverage_all.update({test_vector: self.detect_faults(test_vector, faults)})
+                fault_coverage_all[test_vector] = fault_coverage_all.setdefault(test_vector, []) + \
+                                                  self.detect_faults(test_vector, faults)
             detected_faults = self.detect_faults(test_vector, remaining_faults)
-            fault_coverage_list.update({test_vector: detected_faults})
+            fault_coverage_list[test_vector] = fault_coverage_list.setdefault(test_vector, []) + detected_faults
+
+
+            # with self.mute():
+            #     fault_coverage_all.update({test_vector: self.detect_faults(test_vector, faults)})
+            # detected_faults = self.detect_faults(test_vector, remaining_faults)
+            # fault_coverage_list.update({test_vector: detected_faults})
             remaining_faults = [fault for fault in remaining_faults if fault not in detected_faults]
             print(f"\ntv {test_vector} detects the following {len(detected_faults)} faults:")
             print(detected_faults, "...\n", sep='')
@@ -159,13 +185,14 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
 
         if self.kwargs['verbose']:
             print(f"Final UNDETECTED: {len(remaining_faults)} faults: {remaining_faults}")
-
+        self.reset()
         return result
 
     def simulate(self) -> None:
 
         iteration_printer = self.IterationPrinter(self.nodes)
         for iteration in self:
+            iteration_printer(self.nodes)
             pass
 
     def reset(self):
@@ -174,28 +201,36 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         for dummy_node in self.nodes.dummy_nodes.values():
             dummy_node.output_nodes[0].input_nodes.append(dummy_node.genuine)
             dummy_node.output_nodes[0].input_nodes.remove(dummy_node)
-            # del dummy_node
         self.nodes.dummy_nodes.clear()
         self.faults.clear()
 
-    def run_batch(self, test_vectors: List[TestVector], seed: int, taps: List[int] = None):
-        # input_bits = len(self.nodes.input_nodes)
-        # test_vectors = TestVectorGenerator(seed, input_bits, taps)() if taps else \
-        #     TestVectorGenerator.from_counter(seed, input_bits)
+    def run_batch(self, seed: int, taps: List[int] = None):
+        input_bits = len(self.nodes.input_nodes)
+        test_vectors = TestVectorGenerator(seed, input_bits, taps)() if taps else \
+            TestVectorGenerator.from_counter(seed, input_bits)
+        test_vectors = [test_vector[:input_bits] for test_vector in test_vectors]
         if self.kwargs['verbose']:
             print('-- derived full fault list: ---')
             print(f"tv list has {len(test_vectors)} tvs:")
             print(test_vectors, '\n')
+        # self.reset()
         return self.fault_coverage(test_vectors, self.generate_fault_list())
 
     def run_batches(self, test_vectors: List[TestVector], seed: int) -> str:
-        return json.dumps(dict({
-            'n-bit counter': self.run_batch(test_vectors, seed, taps=[]),
-            'lfsr no taps': self.run_batch(test_vectors, seed, taps=[1]),
-            'lfsr with taps at 2, 4, 5': self.run_batch(test_vectors, seed, taps=[2, 4, 5]),
-            'lfsr with taps at 2, 3, 4': self.run_batch(test_vectors, seed, taps=[2, 3, 4]),
-            'lfsr with taps at 3, 5, 7': self.run_batch(test_vectors, seed, taps=[3, 5, 7])
-        }))
+        with open(f"_{self.kwargs.get('bench')}_seed_{hex(seed)}.csv", 'w') as f:
+            w = csv.writer(f, delimiter=',', lineterminator='\n')
+            w.writerows(["n-bit counter", tv, *faults] for tv, faults in
+                        self.run_batch(seed, taps=[]).fault_coverage_list.items())
+            w.writerows(["LFSR no taps", tv, *faults] for tv, faults in
+                        self.run_batch(seed, taps=[1]).fault_coverage_list.items())
+            w.writerows(["LFSR with taps at 2, 4, 5", tv, *faults] for tv, faults in
+                        self.run_batch(seed, taps=[1, 2, 4, 5]).fault_coverage_list.items())
+            w.writerows(["LFSR with taps at 2, 3, 4", tv, *faults] for tv, faults in
+                        self.run_batch(seed, taps=[1, 2, 3, 4]).fault_coverage_list.items())
+            w.writerows(["LFSR with taps at 3, 5, 7", tv, *faults] for tv, faults in
+                        self.run_batch(seed, taps=[1, 3, 5, 7]).fault_coverage_list.items())
+
+
 
     @contextmanager
     def mute(self):

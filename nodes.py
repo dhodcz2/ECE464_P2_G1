@@ -131,6 +131,7 @@ class Node(object):
 
     def __repr__(self):
         return self.name
+        # return "repr"
 
     def __str__(self):
         return f"{self.type}\t{self.name} = {self.value}"
@@ -156,11 +157,20 @@ class Node(object):
 
 
 class DummyNode(Node):
-    def __init__(self, node: Node):
+    def __init__(self, node: Node, stuck_at: Value):
         self.genuine = node
         gate_copy = copy(node.gate)
         super(DummyNode, self).__init__(gate=gate_copy)
         self.input_nodes = node.input_nodes
+        self.stuck_at = stuck_at
+
+    @property
+    def name(self):
+        return self.genuine.name + " Dummy"
+
+
+
+
 
     # @property
     # def value(self):
@@ -168,20 +178,7 @@ class DummyNode(Node):
 
 
 
-        # gate_copy = node.gate
-        # super(DummyNode, self).__init__(gate_copy)
-        # gate_copy = copy(node.gate)
-        # gate_copy = copynode.gate)
-        # gate_copy.node = self
-        # self.input_nodes = node.input_nodes
-        # gate_copy.input_nodes = node.input_nodes
-        # self.genuine = node
 
-    def __str__(self):
-        return super(DummyNode, self).__str__() + " Dummy"
-
-    def __repr__(self):
-        return super(DummyNode, self).__repr__() + " Dummy"
 
 
 class Gate(object):
