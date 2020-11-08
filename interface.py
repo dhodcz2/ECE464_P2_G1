@@ -80,14 +80,14 @@ def prompt_arguments() -> Dict:
     # print("Using the following seed: ", hex(seed))
     # Prompts user to perform TV List Generation via PRPGs, if no, use LFSR
     while True:
-        option: str = input("Would you like to generate the TV list with PRPGs? (Y/N): ")
+        option: str = input("Would you like to generate the TV list with LFSR? (Y/N): ")
         if option == 'n' or option == 'N':
             counter = True
             print("Performing TV list generation via counter.")
             break
         elif option == 'y' or option == 'Y':
             counter = False
-            print("Performing TV list generation via PRPG.")
+            print("Performing TV list generation via LFSR.")
             break
         else:
             print("Invalid response; please try again")
@@ -124,6 +124,7 @@ def prompt_arguments() -> Dict:
         print(*taps, sep=', ')
         print('\n')
         break
+
 
     # if counter == False:
     #     while True:
