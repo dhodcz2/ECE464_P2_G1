@@ -1,4 +1,4 @@
-from typing import List, Union, Dict, NamedTuple
+from typing import List, Union, Dict, NamedTuple, Tuple
 from contextlib import contextmanager
 import json
 from dataclasses import dataclass
@@ -135,46 +135,61 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         @dataclass
         class Result:
             remaining_faults: List[Fault]
-            fault_coverage_all: Dict[TestVector, List[Fault]]
-            fault_coverage_list: Dict[TestVector, List[Fault]]
+            fault_coverage_all: List[Tuple[TestVector, List[Fault]]]
+            fault_coverage_list: List[Tuple[TestVector, List[Fault]]]
+
+        # @dataclass
+        # class Result:
+        #     remaining_faults: List[Fault]
+        #     fault_coverage_all: Dict[TestVector, List[Fault]]
+        #     fault_coverage_list: Dict[TestVector, List[Fault]]
 
         self.reset()
         remaining_faults = faults
-        fault_coverage_all = {}
-        fault_coverage_list = {}
+        fault_coverage_all = []
+        fault_coverage_list = []
+        if not self.kwargs.get('graph'): #  Complete fault coverage doesn't matter if we're doing the comparison
+            with self.mute():
+                for test_vector in test_vectors:
+                    fault_coverage_all.append(
+                        (test_vector, self.detect_faults(test_vector, faults))
+                    )
+
         for test_vector in test_vectors:
             if self.kwargs['verbose']:
                 print(f"Now applying {test_vector} to the remaining {len(remaining_faults)} faults:",
                       '\n', remaining_faults, '...', '\n', sep='')
-            if not self.kwargs.get('graph'):
-                with self.mute():
-                    fault_coverage_all[test_vector] = fault_coverage_all.setdefault(test_vector, []) + \
-                                                      self.detect_faults(test_vector, faults)
             detected_faults = self.detect_faults(test_vector, remaining_faults)
-            fault_coverage_list[test_vector] = fault_coverage_list.setdefault(test_vector, []) + detected_faults
-
+            fault_coverage_list.append((test_vector, detected_faults))
             remaining_faults = [fault for fault in remaining_faults if fault not in detected_faults]
+            # if not self.kwargs.get('graph'):
+            #     with self.mute():
+            #         fault_coverage_all[test_vector] = fault_coverage_all.setdefault(test_vector, []) + \
+            #                                           self.detect_faults(test_vector, faults)
+            # detected_faults = self.detect_faults(test_vector, remaining_faults)
+            # fault_coverage_list[test_vector] = fault_coverage_list.setdefault(test_vector, []) + detected_faults
+
             if self.kwargs.get('verbose'):
                 print(f"\ntv {test_vector} detects the following {len(detected_faults)} faults:")
                 print(detected_faults, "...\n", sep='')
 
         result = Result(remaining_faults, fault_coverage_all, fault_coverage_list)
-
-        with open(f"_{self.kwargs['bench']}_remainingfaults.txt", 'w', newline='') as f:
-            w = csv.writer(f, delimiter=',', lineterminator='\n')
-            w.writerow([str(fault) for fault in result.remaining_faults])
-        with open(f"_{self.kwargs['bench']}_all.csv", 'w', newline='') as f:
-            tv_writer = csv.writer(f, delimiter=',', lineterminator=':')
-            fault_writer = csv.writer(f, delimiter=',', lineterminator='\n')
-            for tv, faults in result.fault_coverage_all.items():
-                tv_writer.writerow([str(tv)])
-                fault_writer.writerow(faults)
-        with open(f"_{self.kwargs['bench']}_list.csv", 'w', newline='') as f:
-            tv_writer = csv.writer(f, delimiter=',', lineterminator=':')
-            fault_writer = csv.writer(f, delimiter=',', lineterminator='\n')
-            for tv, faults in result.fault_coverage_list.items():
-                tv_writer.writerow([str(tv)])
-                fault_writer.writerow(faults)
+        if not self.kwargs.get('graph'):
+            with open(f"_{self.kwargs['bench']}_remainingfaults.txt", 'w', newline='') as f:
+                w = csv.writer(f, delimiter=',', lineterminator='\n')
+                w.writerow([str(fault) for fault in result.remaining_faults])
+            with open(f"_{self.kwargs['bench']}_all.csv", 'w', newline='') as f:
+                tv_writer = csv.writer(f, delimiter=',', lineterminator=':')
+                fault_writer = csv.writer(f, delimiter=',', lineterminator='\n')
+                for tv, faults in result.fault_coverage_all:
+                    tv_writer.writerow([str(tv)])
+                    fault_writer.writerow(faults)
+            with open(f"_{self.kwargs['bench']}_list.csv", 'w', newline='') as f:
+                tv_writer = csv.writer(f, delimiter=',', lineterminator=':')
+                fault_writer = csv.writer(f, delimiter=',', lineterminator='\n')
+                for tv, faults in result.fault_coverage_list:
+                    tv_writer.writerow([str(tv)])
+                    fault_writer.writerow(faults)
 
         if self.kwargs['verbose']:
             print(f"Final UNDETECTED: {len(remaining_faults)} faults: {remaining_faults}")
@@ -213,15 +228,16 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         with open(f"_{self.kwargs.get('bench')}_seed_{hex(seed)}.csv", 'w') as f:
             w = csv.writer(f, delimiter=',', lineterminator='\n')
             w.writerows(["n-bit counter", tv, *faults] for tv, faults in
-                        self.run_batch(seed, taps=[]).fault_coverage_list.items())
+                        self.run_batch(seed, taps=[]).fault_coverage_list)
+                        # self.run_batch(seed, taps=[]).fault_coverage_list.items())
             w.writerows(["LFSR no taps", tv, *faults] for tv, faults in
-                        self.run_batch(seed, taps=[1]).fault_coverage_list.items())
+                        self.run_batch(seed, taps=[1]).fault_coverage_list)
             w.writerows(["LFSR with taps at 2, 4, 5", tv, *faults] for tv, faults in
-                        self.run_batch(seed, taps=[1, 2, 4, 5]).fault_coverage_list.items())
+                        self.run_batch(seed, taps=[1, 2, 4, 5]).fault_coverage_list)
             w.writerows(["LFSR with taps at 2, 3, 4", tv, *faults] for tv, faults in
-                        self.run_batch(seed, taps=[1, 2, 3, 4]).fault_coverage_list.items())
+                        self.run_batch(seed, taps=[1, 2, 3, 4]).fault_coverage_list)
             w.writerows(["LFSR with taps at 3, 5, 7", tv, *faults] for tv, faults in
-                        self.run_batch(seed, taps=[1, 3, 5, 7]).fault_coverage_list.items())
+                        self.run_batch(seed, taps=[1, 3, 5, 7]).fault_coverage_list)
 
     @contextmanager
     def mute(self):
