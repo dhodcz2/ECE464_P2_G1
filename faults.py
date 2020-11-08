@@ -216,7 +216,7 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         # self.reset()
         return self.fault_coverage(test_vectors, self.generate_fault_list())
 
-    def run_batches(self, test_vectors: List[TestVector], seed: int) -> str:
+    def run_batches(self, seed: int) -> str:
         with open(f"_{self.kwargs.get('bench')}_seed_{hex(seed)}.csv", 'w') as f:
             w = csv.writer(f, delimiter=',', lineterminator='\n')
             w.writerows(["n-bit counter", tv, *faults] for tv, faults in

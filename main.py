@@ -42,8 +42,8 @@ if __name__ == '__main__':
         TestVectorGenerator.from_counter(args.seed, input_bits)
     test_vectors = [test_vector[:input_bits] for test_vector in test_vectors]
     if args.graph:
-        result = circuit_simulator.run_batches(test_vectors, args.seed)
+        result = circuit_simulator.run_batches(args.seed)
         print()
     else:
-        result = circuit_simulator.run_batch(test_vectors, args.seed, args.taps)
+        result = circuit_simulator.run_batch(args.seed, args.taps)
         print()
