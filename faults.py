@@ -38,6 +38,7 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         super(CircuitSimulator, self).__init__(**kwargs)
         self.kwargs = kwargs
         self.faults: List[Fault] = []
+        self.fault_list = self.generate_fault_list()
 
     @staticmethod
     def local_faults(node: Node) -> List[Fault]:
@@ -80,16 +81,10 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         if fault.input_node:
             dummy_node = DummyNode(fault.input_node, fault.stuck_at)
             self.nodes.dummy_nodes.update({dummy_node.name: dummy_node})
-            if dummy_node.name == "h Dummy":
-                print()
             dummy_node.output_nodes = [fault.node]
-            try:
-                fault.node.input_nodes.remove(fault.input_node)
-            except:
-                print()
+            fault.node.input_nodes.remove(fault.input_node)
             fault.node.input_nodes.append(dummy_node)
             self.nodes.faulty_nodes.append(dummy_node)
-            print()
         else:
             fault.node.stuck_at = fault.stuck_at
             self.nodes.faulty_nodes.append(fault.node)
@@ -107,7 +102,7 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
                 faulty_node.stuck_at = None
         self.nodes.faulty_nodes.clear()
         self.nodes.dummy_nodes.clear()
-
+        self.faults.clear()
 
     def detect_fault(self, test_vector: TestVector) -> bool:
         """Returns: True if, when applying the given test vector, a fault may be detected"""
@@ -143,6 +138,7 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
             fault_coverage_all: Dict[TestVector, List[Fault]]
             fault_coverage_list: Dict[TestVector, List[Fault]]
 
+        self.reset()
         remaining_faults = faults
         fault_coverage_all = {}
         fault_coverage_list = {}
@@ -150,20 +146,17 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
             if self.kwargs['verbose']:
                 print(f"Now applying {test_vector} to the remaining {len(remaining_faults)} faults:",
                       '\n', remaining_faults, '...', '\n', sep='')
-            with self.mute():
-                fault_coverage_all[test_vector] = fault_coverage_all.setdefault(test_vector, []) + \
-                                                  self.detect_faults(test_vector, faults)
+            if not self.kwargs.get('graph'):
+                with self.mute():
+                    fault_coverage_all[test_vector] = fault_coverage_all.setdefault(test_vector, []) + \
+                                                      self.detect_faults(test_vector, faults)
             detected_faults = self.detect_faults(test_vector, remaining_faults)
             fault_coverage_list[test_vector] = fault_coverage_list.setdefault(test_vector, []) + detected_faults
 
-
-            # with self.mute():
-            #     fault_coverage_all.update({test_vector: self.detect_faults(test_vector, faults)})
-            # detected_faults = self.detect_faults(test_vector, remaining_faults)
-            # fault_coverage_list.update({test_vector: detected_faults})
             remaining_faults = [fault for fault in remaining_faults if fault not in detected_faults]
-            print(f"\ntv {test_vector} detects the following {len(detected_faults)} faults:")
-            print(detected_faults, "...\n", sep='')
+            if self.kwargs.get('verbose'):
+                print(f"\ntv {test_vector} detects the following {len(detected_faults)} faults:")
+                print(detected_faults, "...\n", sep='')
 
         result = Result(remaining_faults, fault_coverage_all, fault_coverage_list)
 
@@ -214,7 +207,7 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
             print(f"tv list has {len(test_vectors)} tvs:")
             print(test_vectors, '\n')
         # self.reset()
-        return self.fault_coverage(test_vectors, self.generate_fault_list())
+        return self.fault_coverage(test_vectors, self.fault_list)
 
     def run_batches(self, seed: int) -> str:
         with open(f"_{self.kwargs.get('bench')}_seed_{hex(seed)}.csv", 'w') as f:
@@ -229,8 +222,6 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
                         self.run_batch(seed, taps=[1, 2, 3, 4]).fault_coverage_list.items())
             w.writerows(["LFSR with taps at 3, 5, 7", tv, *faults] for tv, faults in
                         self.run_batch(seed, taps=[1, 3, 5, 7]).fault_coverage_list.items())
-
-
 
     @contextmanager
     def mute(self):
