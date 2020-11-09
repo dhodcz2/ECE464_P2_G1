@@ -1,4 +1,6 @@
 from _collections import OrderedDict
+import multiprocessing as mp
+import concurrent.futures
 from typing import List, Dict, Union, Tuple
 from contextlib import contextmanager
 import nodes
@@ -184,27 +186,47 @@ class CircuitSimulator(object):
         self.kwargs = kwargs
         self.parser = self.LineParser(kwargs['bench'])
         self.compile(self.parser.parse_file())
+        self.updated_nodes = False
+
+    @staticmethod
+    def get_logic_static(node: Node) -> Tuple[str, nodes.Value]:
+        # return node.get_logic()
+        return node.name, node.get_logic()
 
     def __next__(self):
         """In each iteration, the nodes' values are updated to represent the result of the
         input nodes with their logic."""
         self.iteration += 1
-        updated_nodes = 0
-        for node in self.nodes:
+        self.relevant_nodes = set(output_node for node in self.relevant_nodes
+                               for output_node in node.output_nodes)
+        # with concurrent.futures.ProcessPoolExecutor() as executor:
+        #     results = [executor.submit(self.get_logic_static, node) for node in self.relevant_nodes]
+        #     for result in concurrent.futures.as_completed(results):
+        #         node_name, value = result.result()
+        #         self.nodes[node_name].value_new = value
+        #
+        for node in self.relevant_nodes:
             node.logic()
-            if node.value != node.value_new:
-                updated_nodes += 1
-        if updated_nodes == 0:
-            raise StopIteration
-        for node in self.nodes:
+        for node in self.relevant_nodes:
             node.update()
-        if self.iteration == 0:
-            self.iteration += 1
-            return "Initial values" + str(self.nodes)
-        return "Iteration # " + str(self.iteration) + ": " + str(self.nodes)
+        if self.iteration == self.cycles_needed - 1:
+            raise StopIteration
+        # if self.iteration == 0:
+        #     self.iteration += 1
+        #     return "Initial values" + str(self.nodes)
+        # return "Iteration # " + str(self.iteration) + ": " + str(self.nodes)
 
     def __iter__(self):
         self.iteration = -1
+        self.relevant_nodes = list(
+            node for node in self.nodes.input_nodes.values()
+        )
+        # self.relevant_nodes = set(
+        #     node for input_node in list(self.nodes.input_nodes.values())
+        #     for node in input_node.output_nodes
+        # )
+        # self.relevant_nodes = (node for node in tuple(self.nodes.input_nodes.values()))
+        # self.relevant_nodes = [node for node in tuple(self.nodes.input_nodes.values())]
         return self
 
     def __str__(self):
@@ -319,5 +341,3 @@ class CircuitSimulator(object):
         """Iterate across all the nodes in the circuit, resetting them if they were made to be faulty."""
         for node in self.nodes:
             node.reset()
-
-

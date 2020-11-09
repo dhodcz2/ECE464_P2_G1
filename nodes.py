@@ -3,6 +3,7 @@ from typing import List, Type, Union, NamedTuple, Any
 from dataclasses import dataclass
 from copy import copy, deepcopy
 
+
 class Value(object):
     @property
     def value(self):
@@ -88,6 +89,7 @@ class Node(object):
         self.input_nodes: List[Node] = []
         self.output_nodes: List[Node] = []
         self.stuck_at: Union[None, Value] = None
+        self.get_logic = gate.get_logic
 
     @property
     def name(self):
@@ -98,8 +100,8 @@ class Node(object):
         return self.gate.value
 
     @value.setter
-    def value(self, value: Value):
-        self.gate.value = value
+    def value(self, val: Value):
+        self.gate.value = val
 
     @property
     def value_new(self):
@@ -124,6 +126,7 @@ class Node(object):
                 return True
             else:
                 return False
+
         # if self.value == other:
         #     return True
         # else:
@@ -168,17 +171,8 @@ class DummyNode(Node):
     def name(self):
         return self.genuine.name + " Dummy"
 
-
-
-
-
     # @property
     # def value(self):
-
-
-
-
-
 
 
 class Gate(object):
@@ -189,7 +183,6 @@ class Gate(object):
         self.node: Union[Node, None] = None
         self._value: Value = Value('U')
         self._value_new: Value = Value('U')
-
 
     #     return hash(self.name)
 
@@ -208,11 +201,10 @@ class Gate(object):
     def value(self) -> Value:
         return self.propagate(self._value)
 
-
-
     @value.setter
     def value(self, value: Value):
-        self._value = value
+        # self._value = value
+        self._value = self.propagate(value)
 
     @property
     def value_new(self) -> Value:
@@ -220,7 +212,8 @@ class Gate(object):
 
     @value_new.setter
     def value_new(self, value: Value):
-        self._value_new = value
+        # self._value_new = value
+        self._value_new = self.propagate(value)
 
     @property
     def input_nodes(self) -> List[Node]:
@@ -245,6 +238,9 @@ class Gate(object):
     def logic(self):
         # Do not change
         pass
+
+    def get_logic(self):
+        return self._value
 
     @dataclass
     class Count:
@@ -281,6 +277,7 @@ class AndGate(Gate):
         self.type = "AND"
 
     def logic(self):
+        # print("And gate logic run")
         count = self.count
         if count.zero:
             self.value_new = Value(0)
@@ -295,6 +292,22 @@ class AndGate(Gate):
         else:
             self.value_new = Value(1)
 
+    def get_logic(self):
+        # print("And gate logic run")
+        count = self.count
+        if count.zero:
+            return Value(0)
+        elif count.unknown:
+            return Value('U')
+        elif count.d and count.dprime:
+            return Value(0)
+        elif count.d:
+            return Value("D")
+        elif count.dprime:
+            return Value("D'")
+        else:
+            return Value(1)
+
 
 class NandGate(AndGate):
     def __init__(self, name, inputs=[]):
@@ -302,8 +315,11 @@ class NandGate(AndGate):
         self.type = "NAND"
 
     def logic(self):
-        super().logic()
+        super(NandGate, self).logic()
         self.value_new = ~self.value_new
+
+    def get_logic(self):
+        return ~super(NandGate, self).get_logic()
 
 
 class OrGate(Gate):
@@ -326,15 +342,29 @@ class OrGate(Gate):
         else:
             self.value_new = Value(0)
 
+    def logic(self):
+        count = self.count
+        if count.one:
+            self.value_new = Value(1)
+        elif count.d and count.dprime:
+            self.value_new = Value(1)
+        elif count.unknown:
+            self.value_new = Value('U')
+        elif count.d:
+            self.value_new = Value("D")
+        elif count.dprime:
+            self.value_new = Value("D'")
+        else:
+            self.value_new = Value(0)
+
 
 class NorGate(OrGate):
     def __init__(self, name, inputs=[]):
         super(OrGate, self).__init__(name, inputs)
         self.type = "NOR"
 
-    def logic(self):
-        super().logic()
-        self.value_new = ~self.value_new
+    def get_logic(self):
+        return ~super(NorGate, self).get_logic()
 
 
 class NotGate(Gate):
@@ -345,11 +375,31 @@ class NotGate(Gate):
     def logic(self):
         self.value_new = ~self.input_nodes[0].value
 
+    def get_logic(self):
+        return ~self.input_nodes[0].value
+
 
 class XorGate(Gate):
     def __init__(self, name, inputs=[]):
         super(XorGate, self).__init__(name, inputs)
         self.type = "XOR"
+
+    def logic(self):
+        count = self.count
+        if count.one > 1:
+            return Value(0)
+        elif count.unknown >= 1:
+            return Value("U")
+        elif count.one == 1:
+            return Value(1)
+        elif count.d == 1 and count.dprime == 1:
+            return Value(1)
+        elif count.d == 1:
+            return Value("D")
+        elif count.dprime == 1:
+            return Value("D'")
+        else:
+            return Value(0)
 
     def logic(self):
         count = self.count
@@ -375,8 +425,13 @@ class XnorGate(XorGate):
         self.type = "XNOR"
 
     def logic(self):
-        super().logic()
+        super(XnorGate, self).logic()
         self.value_new = ~self.value_new
+
+    def get_logic(self):
+        return ~super(XnorGate, self).get_logic()
+        # super().logic()
+        # return ~self.value_new
 
 
 class BuffGate(Gate):
@@ -386,6 +441,9 @@ class BuffGate(Gate):
 
     def logic(self):
         self.value_new = self.input_nodes[0].value
+
+    def get_logic(self):
+        return self.input_nodes[0].value
 
 
 class LogicTest(unittest.TestCase):

@@ -1,4 +1,6 @@
 from typing import List, Union, Dict, NamedTuple, Tuple
+from time import time
+import concurrent.futures
 from contextlib import contextmanager
 import json
 from dataclasses import dataclass
@@ -39,6 +41,7 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         self.kwargs = kwargs
         self.faults: List[Fault] = []
         self.fault_list = self.generate_fault_list()
+        self.cycles_needed: int = self.determine_cycles_needed()
 
     @staticmethod
     def local_faults(node: Node) -> List[Fault]:
@@ -117,9 +120,12 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
             """Note: the entire circuit is not being reset, just the faults. I believe this can
             decrease simulation time."""
             self.clear_faults()
+            # self.reset()
             for input_node, value in zip(self.nodes.input_nodes.values(), test_vector):
                 input_node.set(value)
             self.induce_fault(fault)
+            if 'c-0' in self.faults and self.nodes['c'].stuck_at:
+                print()
             if self.detect_fault(test_vector):
                 if self.kwargs['verbose']:
                     print(f"Fault {fault} detected by {test_vector}")
@@ -128,6 +134,13 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
                 if self.kwargs['verbose']:
                     print(f"Fault {fault} UNdetected by {test_vector}")
                 return False
+
+        def helper(fault: Fault) -> Union[Fault, None]:
+            return fault if test(fault) else None
+
+        # with concurrent.futures.ProcessPoolExecutor() as executor:
+        #     results = [executor.submit(helper, fault) for fault in faults]
+        #     return [fault for fault in concurrent.futures.as_completed(results) if fault]
 
         return [fault for fault in faults if test(fault)]
 
@@ -138,17 +151,10 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
             fault_coverage_all: List[Tuple[TestVector, List[Fault]]]
             fault_coverage_list: List[Tuple[TestVector, List[Fault]]]
 
-        # @dataclass
-        # class Result:
-        #     remaining_faults: List[Fault]
-        #     fault_coverage_all: Dict[TestVector, List[Fault]]
-        #     fault_coverage_list: Dict[TestVector, List[Fault]]
-
-        self.reset()
         remaining_faults = faults
         fault_coverage_all = []
         fault_coverage_list = []
-        if not self.kwargs.get('graph'): #  Complete fault coverage doesn't matter if we're doing the comparison
+        if not self.kwargs.get('graph'):  # Complete fault coverage doesn't matter if we're doing the comparison
             with self.mute():
                 for test_vector in test_vectors:
                     fault_coverage_all.append(
@@ -197,10 +203,9 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         return result
 
     def simulate(self) -> None:
-
         iteration_printer = self.IterationPrinter(self.nodes)
         for iteration in self:
-            iteration_printer(self.nodes)
+            # iteration_printer(self.nodes)
             pass
 
     def reset(self):
@@ -225,11 +230,12 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         return self.fault_coverage(test_vectors, self.fault_list)
 
     def run_batches(self, seed: int) -> str:
+        start = time()
         with open(f"_{self.kwargs.get('bench')}_seed_{hex(seed)}.csv", 'w') as f:
             w = csv.writer(f, delimiter=',', lineterminator='\n')
             w.writerows(["n-bit counter", tv, *faults] for tv, faults in
                         self.run_batch(seed, taps=[]).fault_coverage_list)
-                        # self.run_batch(seed, taps=[]).fault_coverage_list.items())
+            # self.run_batch(seed, taps=[]).fault_coverage_list.items())
             w.writerows(["LFSR no taps", tv, *faults] for tv, faults in
                         self.run_batch(seed, taps=[1]).fault_coverage_list)
             w.writerows(["LFSR with taps at 2, 4, 5", tv, *faults] for tv, faults in
@@ -238,6 +244,7 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
                         self.run_batch(seed, taps=[1, 2, 3, 4]).fault_coverage_list)
             w.writerows(["LFSR with taps at 3, 5, 7", tv, *faults] for tv, faults in
                         self.run_batch(seed, taps=[1, 3, 5, 7]).fault_coverage_list)
+        print(time() - start)
 
     @contextmanager
     def mute(self):
@@ -245,3 +252,12 @@ class CircuitSimulator(circuitsimulator.CircuitSimulator):
         self.kwargs['verbose'] = False
         yield
         self.kwargs['verbose'] = temp
+
+    def determine_cycles_needed(self) -> int:
+        def recursion(node: Node) -> int:
+            length = 1
+            paths = [recursion(output_node) for output_node in node.output_nodes]
+            length += max(paths) if paths else 0
+            return length
+
+        return max([recursion(input_node) for input_node in self.nodes.input_nodes.values()])
