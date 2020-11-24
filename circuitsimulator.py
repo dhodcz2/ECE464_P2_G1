@@ -1,343 +1,386 @@
-from _collections import OrderedDict
-import multiprocessing as mp
-import concurrent.futures
-from typing import List, Dict, Union, Tuple
+from typing import List, Dict, Union, Tuple, Set, Any
+from collections import OrderedDict
+import csv
+from testvector import TestVector, TestVectorGenerator
+from dataclasses import dataclass
 from contextlib import contextmanager
-import nodes
-from nodes import Node, DummyNode
-import exceptions
+from collections import OrderedDict
+from nodes import *
+from nodes import Node, Gate, FlipFlop, Value, DummyNode
+from faults import Fault
 from re import match
+import itertools
+import functools
+import exceptions
 
 
 def generate_line(node: Node) -> str:
-    """
-    Parameters
-    ----------
-    node: Node
-        The node to for which a text line is to be generated
-
-    Returns
-    -------
-    str:
-        A line representing relevant information for a node.
-
-    """
-    line: str = node.type.ljust(11) + \
-                node.name.ljust(8) + \
-                (node.gate_type.ljust(8) if node.gate_type else "" + ', '.join(node.input_names)).ljust(20) + \
-                str(node.value).ljust(3)
-    return line
+    return node.type.ljust(11) + node.name.ljust(8) + \
+           (node.gate.type.ljust(8) if node.gate.type else "" + ', '.join(node.input_nodes)).ljust(20) + \
+           str(node.value).ljust(3)
 
 
-class CircuitSimulator(object):
-    class IterationPrinter(object):
-        """
-        An abstraction that allows for more compact printing of nodes.
-        When the IterationPrinter is initialized with nodes, it generates an
-        informative list of strings corresponding to the nodes. Then,
-        call() is run to append to the end of a line, a new chronological node value.
-        """
+class CircuitSimulator:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        gates = self.LineParser(kwargs['bench']).parse_file()
+        self.nodes = self.compile(gates)
+        self.faulty_node: Optional[Node, DummyNode]
+        self.relevant_nodes: Set[Node] = set()
+        # self.relevant_nodes: List[Node] = []
 
+    def __iter__(self):
+        self.iteration = itertools.count()
+        # self.relevant_nodes = self.nodes.input_nodes.values()
+        return self
+
+    def __next__(self):
+        if next(self.iteration) < self.cycle_resolution_length:
+            relevant_node_set = self.relevant_nodes
+            # relevant_node_set = set(self.relevant_nodes)
+            # relevant_node_set.difference_update(
+            #     output_node for node in relevant_node_set.copy()
+            #     for output_node in node.output_nodes
+            #     # if node.value is value_U
+            # )
+            for node in relevant_node_set:
+                node.logic()
+            for node in relevant_node_set:
+                node.update()
+
+            self.relevant_nodes = {
+                output_node for node in self.relevant_nodes
+                for output_node in node.output_nodes
+            }
+
+        else:
+            # self.relevant_nodes.clear()
+            raise StopIteration
+
+    def __str__(self):
+        return itertools.accumulate((f"{node}\n" for node in self.nodes))
+
+    def apply_vector(self, test_vector: TestVector):
+        self.relevant_nodes = {
+            node for node in (
+                output_node for input_node in
+                self.nodes.input_nodes.values()
+                for output_node in input_node.output_nodes
+            )
+        }
+        for input_node, value in zip(self.nodes.input_nodes.values(), test_vector):
+            input_node.value = value
+            input_node.vector_assignment = value
+
+    @staticmethod
+    def compile(gates: 'LineParser.Gates') -> 'CircuitSimulator.Nodes':
+        nodes_instance = CircuitSimulator.Nodes()
+        nodes_map = {"INPUT": nodes_instance.input_nodes, "OUTPUT": nodes_instance.output_nodes}
+        for name, gate in gates.gates.items():
+            node = Node(gate)
+            nodes_map.get(gate.type, nodes_instance.intermediate_nodes)[name] = node
+        for name, input_names in gates.inputs.items():
+            nodes_instance[name].input_nodes = [nodes_instance[input_name] for input_name in input_names]
+            for input_name in input_names:
+                nodes_instance[input_name].output_nodes.append(nodes_instance[name])
+
+        nodes_instance.flip_flops = {node for node in nodes_instance if isinstance(node, FlipFlop)}
+        return nodes_instance
+
+    @staticmethod
+    def local_faults(node: Node) -> List[Fault]:
+        faults = [Fault(node, Value(0)), Fault(node, Value(1))]
+        faults.extend([
+            fault for faults in (
+                (Fault(node, Value(0), input_node), Fault(node, Value(1), input_node))
+                for input_node in node.input_nodes
+            )
+            for fault in faults
+        ])
+        return faults
+
+    @functools.cached_property
+    def faults(self) -> Set[Fault]:
+        faults = {
+            fault for faults in
+            (self.local_faults(node) for node in self.nodes)
+            for fault in faults
+        }
+        with open("_%s_faults.txt" % self.kwargs['bench'], 'w') as f:
+            for fault in faults:
+                f.write("%s, " % fault)
+        return faults
+
+    @functools.cached_property
+    def cycle_resolution_length(self) -> int:
+        """How many nodes must be traversed for the cycle to be resolved"""
+        count = itertools.count()
+        frontier_nodes: Set[Node] = set(self.nodes.input_nodes.values())
+        # frontier_nodes = self.nodes.input_nodes.values()
+        while frontier_nodes:
+            next(count)
+            frontier_nodes = {
+                node for output_nodes in
+                (node.output_nodes for node in frontier_nodes)
+                for node in output_nodes
+                # if node is not value_U
+            }
+        return next(count) + 5
+
+    @functools.cached_property
+    def flip_flop_resolution_length(self) -> int:
+        """How many cycles must be run for a fault to be detected in any flip flop"""
+        return max([
+                       self._flip_flop_length(flip_flop)
+                       for flip_flop in self.nodes.flip_flops
+                   ] + [0])
+
+    def _flip_flop_length(self, flip_flop: FlipFlop) -> int:
+        """How many cycles must be run for a fault to be detected in the given fault"""
+        lengths = []
+        frontier_nodes: List[Node] = flip_flop.output_nodes
+        traversed_flip_flops: Set[FlipFlop] = {flip_flop}
+        for node in frontier_nodes:
+            if isinstance(node, FlipFlop):
+                lengths.append(self._flip_flop_length(node))
+                if node in traversed_flip_flops:
+                    raise RuntimeError("A fault would require infinite cycles to be detected")
+                traversed_flip_flops.add(node)
+            else:
+                frontier_nodes.extend(node.output_nodes)
+        return max(lengths) if lengths else 1
+
+    @functools.singledispatchmethod
+    def induce_fault(self, fault) -> None:
+        raise NotImplementedError
+
+    @induce_fault.register
+    def _(self, fault: str):
+        parameters = fault.split('-')
+        node = self.nodes[parameters[0]]
+        input_node = self.nodes[parameters[1]] \
+            if parameters[2] else None
+        stuck_at = Value(int(
+            parameters[2] if parameters[2] else parameters[1]
+        ))
+        if not (stuck_at is Value(0) or stuck_at is Value(1)):
+            raise ValueError(f"Invalid stuck-at value: {stuck_at}")
+        self.induce_fault(Fault(node, stuck_at, input_node))
+
+    @induce_fault.register
+    def _(self, fault: Fault):
+        self.fault = fault # for debugging
+        if fault.input_node:
+            dummy_node = DummyNode(fault.node, fault.input_node, fault.stuck_at)
+            fault.node.input_nodes.remove(fault.input_node)
+            fault.node.input_nodes.append(dummy_node)
+            self.faulty_node = dummy_node
+            self.relevant_nodes.add(dummy_node)
+            # self.relevant_nodes.append(dummy_node)
+        else:
+            fault.node.stuck_at = fault.stuck_at
+            self.faulty_node = fault.node
+            # self.relevant_nodes.append(fault.node)
+            self.relevant_nodes.add(fault.node)
+
+    def undo_faults(self):
+        self.faulty_node.undo_fault()
+        if isinstance(self.faulty_node, DummyNode):
+            # self.relevant_nodes.append(self.faulty_node.output_nodes[0])
+            self.relevant_nodes.add(self.faulty_node.output_nodes[0])
+        else:
+            # self.relevant_nodes.append(self.faulty_node)
+            self.relevant_nodes.add(self.faulty_node)
+
+    def detect_fault(self, fault: Fault) -> bool:
+        # self.undo_faults()
+        self.induce_fault(fault)
+        self.cycle()
+        for output_node in self.nodes.output_nodes.values():
+            if output_node.value is value_D or output_node.value is value_DP:
+                self.undo_faults()
+                return True
+        self.undo_faults()
+        return False
+
+    # @functools.lru_cache(100)
+    def detect_faults(self, test_vector: TestVector) -> List[Fault]:
+        self.apply_vector(test_vector)
+        return [fault for fault in self.faults if self.detect_fault(fault)]
+
+
+    def detect_and_eliminate_faults(self, test_vector: TestVector, faults: Set[Fault]) -> Set[Fault]:
+        self.apply_vector(test_vector)
+        detected_faults = {fault for fault in faults if self.detect_fault(fault)}
+        faults.difference_update(detected_faults)
+        return detected_faults
+
+    @dataclass
+    class Result:
+        remaining_faults: Set[Fault]
+        fault_coverage_all: List  # [TestVector, List[Fault]]
+        fault_coverage_list: List  # [TestVector, List[Fault]]
+
+    def run_batch(self, seed: int, taps: Set[int], get_all_coverage=True, get_list_coverage=True) \
+            -> Result:
+        input_bits = len(self.nodes.input_nodes)
+        test_vectors = TestVectorGenerator(seed, input_bits, taps)() if taps else \
+            TestVectorGenerator.from_counter(seed, input_bits)
+        test_vectors = [test_vector[:input_bits] for test_vector in test_vectors]
+        remaining_faults = self.faults.copy()
+        fault_coverage_all: List[Tuple[TestVector, List[Fault]]] = []
+        fault_coverage_list: List[Tuple[TestVector, List[Fault]]] = []
+        tv: TestVector
+        faults: List[Fault]
+        if get_all_coverage:
+            fault_coverage_all = [
+                (tv, faults) for (tv, faults) in (
+                    (test_vector, self.detect_faults(test_vector))
+                    for test_vector in test_vectors
+                )
+            ]
+        if get_list_coverage:
+            fault_coverage_list = [
+                (tv, faults) for (tv, faults) in (
+                    (test_vector, self.detect_and_eliminate_faults(test_vector, remaining_faults))
+                    for test_vector in test_vectors
+                )
+            ]
+        # if get_all_coverage:
+        #     fault_coverage_all = [
+        #         (tv, faults) for (tv, faults) in
+        #         ((test_vector, self.detect_faults(test_vector, self.faults))
+        #         for test_vector in test_vectors)
+        #     ]
+        # if get_list_coverage:
+        #     fault_coverage_list =[ test_vector, faults for test_vector, faults in (
+        #         [test_vector, self.detect_and_eliminate_faults(test_vector, remaining_faults)]
+        #         for test_vector in test_vectors
+        #     )
+        # fault_coverage_all: OrderedDict[TestVector, List[Fault]]
+        # fault_coverage_list: OrderedDict[TestVector, List[Fault]]
+        # if get_all_coverage:
+        #     fault_coverage_all = OrderedDict([
+        #         (test_vector, self.detect_faults(test_vector, self.faults))
+        #         for test_vector in test_vectors
+        #     ])
+        # if get_list_coverage:
+        #     fault_coverage_list = OrderedDict([
+        #         (test_vector, self.detect_and_eliminate_faults(test_vector, remaining_faults))
+        #         for test_vector in test_vectors
+        #     ])
+
+        return self.Result(remaining_faults, fault_coverage_all, fault_coverage_list)
+
+    @dataclass
+    class Batch:
+        name: str
+        seed: int
+        taps: []
+
+    def cycle(self) -> None:
+        for iteration in self:
+            pass
+
+    class IterationPrinter:
         def __init__(self, _nodes: List[Node]):
-            self.iteration = 0
-            self.lines = [generate_line(node) for node in _nodes]
-            header = "Type".ljust(8) + "Variable".ljust(11) + \
-                     "Logic".ljust(8) + "Inputs".ljust(9) + "Initial".ljust(3)
-            self.lines.insert(0, header)
+            self.iteration = itertools.count()
+            header = "Type".ljust(8) + "Variable".ljust(11) + "Logic".ljust(8) + \
+                     "Inputs".ljust(9) + "Initial".ljust(3)
+            self.lines = [header] + [generate_line(node) for node in _nodes]
 
         def __iter__(self):
             for line in self.lines:
                 yield line
 
         def __str__(self):
-            string = ""
-            for line in self:
-                string += line + "\n"
-            return string
+            return itertools.accumulate((line + '\n' for line in self))
 
-        def __call__(self, _nodes):
-            self.iteration += 1
-            self.lines[0] += "\t" + str(self.iteration)
-            i = 0
-            for node in _nodes:
-                self.lines[i + 1] += "\t" + str(node.value)
-                i += 1
+        def __call__(self, _nodes: List[Node]):
+            self.lines[0] += '\t' + next(self.iteration)
+            for node, index in zip(_nodes, itertools.count(1)):
+                self.lines[index] += '\t' + str(node.value)
 
-    class LineParser(object):
-        """Parses a circuit.bench file"""
+    class LineParser:
+        @dataclass
+        class Gates:
+            gates: Dict[str, Gate]
+            inputs: Dict[str, List[str]]
 
         def __init__(self, bench):
             self.file = bench
             self.pattern_gate = "(\S+) = ([A-Z]+)\((.+)\)"
             self.pattern_io = "([A-Z]+)\((.+)\)"
-            self.gates = []
-            self.input_names = []
-            self.output_names = []
-            self.gate_map = {"AND": nodes.AndGate, "OR": nodes.OrGate, "NAND": nodes.NandGate, "XNOR": nodes.XnorGate,
-                             "NOR": nodes.NorGate, "BUFF": nodes.BuffGate, "XOR": nodes.XorGate, "NOT": nodes.NotGate}
+            self.gates: Dict[str, Gate] = {}
+            self.inputs: Dict[str, List[str]] = {}
+            self.types: Dict[str, str] = {}
+            self.gate_map = {"AND": AndGate, "OR": OrGate, "NAND": NandGate, "XNOR": XnorGate,
+                             "NOR": NorGate, "BUFF": BuffGate, "XOR": XorGate, "NOT": NotGate,
+                             "DFF": FlipFlop}
 
-        def parse_file(self):
-            """
-            Parses all the lines in a file
-            :return: Returns a LineParser object to be referenced by the outside class
-            """
+        def parse_file(self) -> Gates:
             with open(self.file) as f:
                 for line in f:
                     self.parse_line(line)
-            return self
+            for name, gate in self.gates.items():
+                gate.type = self.types.get(name, '')
+            return self.Gates(self.gates, self.inputs)
 
         def parse_line(self, line: str):
-
-            if groups := match(self.pattern_gate, line):
+            if line.startswith('#') or line == '\n':
+                pass
+            elif groups := match(self.pattern_gate, line):
                 name = groups.group(1)
-                gate_type = self.gate_map[groups.group(2)]
-                if not gate_type:
-                    raise exceptions.ParseLineError(line)
                 inputs = groups.group(3).split(', ')
-                self.gates.append(gate_type(name, inputs))
+                gate_type = self.gate_map[groups.group(2)]
+                self.gates[name] = gate_type(name)
+                self.inputs[name] = inputs
             elif groups := match(self.pattern_io, line):
                 io = groups.group(1)
                 name = groups.group(2)
-                if io == "INPUT":
-                    self.input_names.append(name)
-                    self.gates.append(nodes.Gate(name))
-                elif io == "OUTPUT":
-                    self.output_names.append(name)
-                else:
+                self.types[name] = io
+                self.gates.setdefault(name, Gate(name))
+                if not io == "INPUT" and not io == "OUTPUT":
                     raise exceptions.ParseLineError(line)
-            elif line.startswith('#') or line == '\n':
-                pass
             else:
                 raise exceptions.ParseLineError(line)
 
-    class Nodes(object):
-        """
-        A list of ordered dictionaries; allows for user to reference a specific node by name, iterate across
-        the nodes in order of input_nodes, intermediate_nodes, and output_nodes, or directly access those node subsets.
-
-        Attributes:
-            input_nodes (OrderedDict):
-            intermediate_nodes (OrderedDict):
-            output_nodes (OrderedDict):
-            faulty_nodes (Dict):
-        """
-
-        def __doc__(self):
-            """Data structure abstraction that is essentially a list of ordered dictionaries;
-            allows for the user to reference a specific node by name, iterate across the nodes in order
-            of input_nodes, intermediate_nodes, and output_nodes, or directly access those node subsets.
-
-
-            """
-
+    class Nodes:
         def __init__(self):
-            self.input_nodes: OrderedDict[str, Node] = OrderedDict()
-            self.intermediate_nodes: OrderedDict[str, Node] = OrderedDict()
-            self.output_nodes: OrderedDict[str, Node] = OrderedDict()
-            self.dummy_nodes: OrderedDict[str, DummyNode] = OrderedDict()
-            self.faulty_nodes: List[Union[Node, DummyNode]] = []
-            # self.faulty_nodes: List[Union[Node, DummyNode]] = []
+            self.input_nodes: Dict[str, Node] = {}
+            self.intermediate_nodes: Dict[str, Node] = {}
+            self.output_nodes: Dict[str, Node] = {}
+            # self.dummy_nodes: List[DummyNode] = []
+            # self.faulty_nodes: List[Node] = []
+            self.flip_flops: Set[FlipFlop] = set()
 
-        def __contains__(self, item: Node):
-            if item in self.intermediate_nodes:
-                return True
-            if item in self.input_nodes:
-                return True
-            if item in self.output_nodes:
-                return True
-            elif item in self.dummy_nodes:
-                return True
-            return False
+        @functools.cached_property
+        def _nodes(self) -> Dict[str, Node]:
+            return {**self.input_nodes, **self.intermediate_nodes, **self.output_nodes}
 
-        def __getitem__(self, item: Node):
-            if item in self.intermediate_nodes:
-                return self.intermediate_nodes[item]
-            elif item in self.input_nodes:
-                return self.input_nodes[item]
-            elif item in self.output_nodes:
-                return self.output_nodes[item]
-            elif item in self.dummy_nodes:
-                return self.dummy_nodes[item]
-            raise KeyError
+        def __contains(self, item: str):
+            return True if self._nodes.get(item) else False
 
-        def __iter__(self):
-            for node in self.input_nodes.values():
+        def __getitem__(self, item: str):
+            return self._nodes[item]
+
+        def __iter__(self) -> Node:
+            for node in self._nodes.values():
                 yield node
-            for node in self.intermediate_nodes.values():
-                yield node
-            for node in self.output_nodes.values():
-                yield node
-            for node in self.dummy_nodes.values():
-                yield node
-            # for node in self.faulty_nodes.value():
+            # for node in self.dummy_nodes:
             #     yield node
 
         def __str__(self):
-            string = ''
-            for node in self:
-                string += f"\n{node}"
-            return string
+            return str({
+                "input_nodes": self.input_nodes,
+                "intermediate_nodes:": self.intermediate_nodes,
+                "output_nodes": self.output_nodes,
+                # "faulty_nodes": self.faulty_nodes,
+                "flip_flops": self.flip_flops
+            })
 
         def __repr__(self):
-            return ' '.join([node for node in self])
-
-    def __init__(self, **kwargs):
-        self.nodes = self.Nodes()
-        self.kwargs = kwargs
-        self.parser = self.LineParser(kwargs['bench'])
-        self.compile(self.parser.parse_file())
-        self.updated_nodes = False
-
-    @staticmethod
-    def get_logic_static(node: Node) -> Tuple[str, nodes.Value]:
-        # return node.get_logic()
-        return node.name, node.get_logic()
-
-    def __next__(self):
-        """In each iteration, the nodes' values are updated to represent the result of the
-        input nodes with their logic."""
-        self.iteration += 1
-        self.relevant_nodes = set(output_node for node in self.relevant_nodes
-                               for output_node in node.output_nodes)
-        # with concurrent.futures.ProcessPoolExecutor() as executor:
-        #     results = [executor.submit(self.get_logic_static, node) for node in self.relevant_nodes]
-        #     for result in concurrent.futures.as_completed(results):
-        #         node_name, value = result.result()
-        #         self.nodes[node_name].value_new = value
-        #
-        for node in self.relevant_nodes:
-            node.logic()
-        for node in self.relevant_nodes:
-            node.update()
-        if self.iteration == self.cycles_needed - 1:
-            raise StopIteration
-        # if self.iteration == 0:
-        #     self.iteration += 1
-        #     return "Initial values" + str(self.nodes)
-        # return "Iteration # " + str(self.iteration) + ": " + str(self.nodes)
-
-    def __iter__(self):
-        self.iteration = -1
-        self.relevant_nodes = list(
-            node for node in self.nodes.input_nodes.values()
-        )
-        # self.relevant_nodes = set(
-        #     node for input_node in list(self.nodes.input_nodes.values())
-        #     for node in input_node.output_nodes
-        # )
-        # self.relevant_nodes = (node for node in tuple(self.nodes.input_nodes.values()))
-        # self.relevant_nodes = [node for node in tuple(self.nodes.input_nodes.values())]
-        return self
-
-    def __str__(self):
-        """Returns a string of all the nodes"""
-        string = ''
-        for node in self.nodes:
-            string += f"{node}\n"
-
-    def compile(self, lineparser: LineParser):
-        """Compiles a functioning circuit of **Node** nodes from a LineParser object"""
-        for gate in lineparser.gates:
-            node = Node(gate)
-            if node.name in lineparser.input_names:
-                node.type = 'input'
-                self.nodes.input_nodes.update({node.name: node})
-            elif node.name in lineparser.output_names:
-                node.type = 'output'
-                self.nodes.output_nodes.update({node.name: node})
-            else:
-                self.nodes.intermediate_nodes.update({node.name: node})
-        # Update Node member vectors input_nodes and output_nodes, which hold references to connected nodes
-        for node in self.nodes:
-            for input_name in node.gate.input_names:
-                # for input_name in [input_node.name for input_node in node.input_nodes]
-                self.nodes[node.name].input_nodes.append(self.nodes[input_name])
-                self.nodes[input_name].output_nodes.append(self.nodes[node.name])
-
-    def prompt(self):
-        """Prompts user for input values"""
-        line = self.args.testvec
-        if not line:
-            line = input("Start simulation with input values (return to exit):")
-            if not line:
-                return False
-        input_values = [letter for letter in list(str(line)) if letter != ' ']
-        final_inputs = []
-        for chars in range(len(input_values)):  # check for D'
-            if input_values[chars] != 'd' and input_values[chars] != 'D':
-                if input_values[chars] != "'":
-                    final_inputs.append(input_values[chars])
-            else:
-                D_index = chars
-                if D_index + 1 < len(input_values) and input_values[D_index + 1] == "'":
-                    final_inputs.append("D'")
-                else:
-                    final_inputs.append(input_values[chars])  # this will always be a single D
-        for character, node in zip(final_inputs, self.nodes.input_nodes.values()):
-            node.set(nodes.Value(character))
-        self.induce_fault()
-        return True
-
-    def simulate(self):
-        """Simulates the circuit consisting of **Node** nodes."""
-
-        iteration_printer = self.IterationPrinter(self.nodes)
-        for iteration in self:
-            iteration_printer(self.nodes)
-        print(iteration_printer)
-        self.detect_faults()
-
-    def induce_fault(self):
-        def noop():
-            pass
-
-        fault_pattern = "(.)+=([0,1])"
-        if self.args.fault:
-            _match = match(fault_pattern, self.args.fault)
-
-            if (_match := match(fault_pattern, self.args.fault)):
-                try:
-                    self.faulty_node: Node = self.nodes[_match[1]]
-                    value = {"0": nodes.Value('D'), "1": nodes.Value("D'")}[_match[2]]
-                    self.faulty_node.set(value)
-                    self.faulty_node.logic = noop
-                except KeyError:
-                    print("Node name not found in nodes")
-        if not self.faulty_node:
-            while True:
-                node_name = input("Which node do you want to be faulty? (return to skip) ")
-                if node_name == "":
-                    break
-                try:
-                    self.faulty_node: Node = self.nodes[node_name]
-                except KeyError:
-                    print("Name not found in nodes")
-                    continue
-                while True:
-                    fault_value = input(f"Which value do you want node {self.faulty_node.name} to be stuck at? (1/0) ")
-                    try:
-                        self.faulty_node.set(
-                            {"0": nodes.Value('D'), "1": nodes.Value("D'")}[fault_value]
-                        )
-                        self.faulty_node.logic = noop
-                        break
-                    except KeyError:
-                        print("Invalid value: try again")
-                break
-
-    def detect_faults(self):
-        if self.faulty_node:
-            print(f"Fault {self.faulty_node.name}-SA-",
-                  0 if self.faulty_node.value == 'D' else 1 if self.faulty_node.value == "D'" else ValueError(), sep='')
-            if any(node == "D" or node == "D'" for node in self.nodes.output_nodes.values()):
-                print(f"detected with input {self.args.testvec}, at output nodes:")
-                faulty_outputs = [node for node in self.nodes.output_nodes.values() if node == "D" or node == "D'"]
-                for node in faulty_outputs:
-                    print(str(node) + "\n")
-            else:
-                print(f"Undetected with {self.args.testvec}")
-
-    def reset(self):
-        """Iterate across all the nodes in the circuit, resetting them if they were made to be faulty."""
-        for node in self.nodes:
-            node.reset()
+            return ', '.join(
+                [repr(node) for node in (self._nodes.values())]  # +
+                # [repr(node) for node in self.dummy_nodes]
+            )
