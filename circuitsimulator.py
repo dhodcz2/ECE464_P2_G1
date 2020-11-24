@@ -49,14 +49,16 @@ class CircuitSimulator:
             #     for output_node in node.output_nodes
             #     if node is value_U
             # )
-
             self.relevant_nodes = {
                 output_node for node in self.relevant_nodes
                 for output_node in node.output_nodes
-            }
-
-
-
+            }\
+            #     .difference(
+            #     output_node for node in self.relevant_nodes
+            #     for output_node in node.output_nodes
+            #     if node.value is value_U
+            # )
+            #
         else:
             # self.relevant_nodes.clear()
             raise StopIteration
@@ -127,9 +129,8 @@ class CircuitSimulator:
                 node for output_nodes in
                 (node.output_nodes for node in frontier_nodes)
                 for node in output_nodes
-                # if node is not value_U
             }
-        return next(count) + 5
+        return next(count)
 
     @functools.cached_property
     def flip_flop_resolution_length(self) -> int:

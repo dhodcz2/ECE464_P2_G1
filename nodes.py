@@ -182,6 +182,7 @@ class Gate:
     def stuck_at(self):
         return self.node.stuck_at
 
+
 class Node:
     def __init__(self, gate: Gate):
         gate.node = self
@@ -239,7 +240,10 @@ class Node:
             self.value_new = self.vector_assignment
 
     def logic(self):
-        self.value_new = self.propagate_fault(self.gate.logic(), self.stuck_at)
+        self.value_new = self.propagate_fault(self.gate.logic(), self.stuck_at) \
+            if self.stuck_at else self.gate.logic()
+
+        # self.value_new = self.propagate_fault(self.gate.logic(), self.stuck_at)
 
     def update(self):
         self.value = self.value_new
@@ -250,11 +254,9 @@ class Node:
         )
 
     @staticmethod
-    @lru_cache(15)
+    @lru_cache(10)
     def propagate_fault(value: Value, stuck_at: Value):
-        if not stuck_at:
-            return value
-        elif stuck_at is value_1:
+        if stuck_at is value_1:
             if value is value_0:
                 return value_DP
             else:
@@ -268,7 +270,6 @@ class Node:
     def reset_fault_corridor(self):
         self.reset()
         for node in self.output_nodes:
-            node.reset()
             node.reset_fault_corridor()
 
 
@@ -300,18 +301,63 @@ class AndGate(Gate):
         super().__init__(name)
         self.type = "AND"
 
+    # def logic(self):
     def logic(self):
-        super(AndGate, self).logic()
-        if self._zero:
+        self._reset_logic()
+        for node in self.input_nodes:
+            if node.value is value_0:
+                return value_0
+            self.__dict__[node.value.key] = True
+        # return self._logic(self._d, self._dprime, self._unknown)
+        return self._logic(self._d, self._dprime, self._unknown)
+
+        # if self._d and self._dprime:
+        #     return value_0
+        # elif self._unknown:
+        #     return value_U
+        # elif self._d:
+        #     return value_D
+        # elif self._dprime:
+        #     return value_DP
+        # return value_1
+        #
+
+    # @lru_cache(25)
+    # def _logic(self, _d, _dprime, _unknown):
+    #     if self._d and self._dprime:
+    #         return value_0
+    #     elif self._unknown:
+    #         return value_U
+    #     elif self._d:
+    #         return value_D
+    #     elif self._dprime:
+    #         return value_DP
+    #     return value_1
+    @staticmethod
+    @lru_cache(25)
+    def _logic(_d, _dprime, _unknown):
+        if _d and _dprime:
             return value_0
-        elif self._d and self._dprime:
-            return value_0
-        elif self._d:
+        elif _unknown:
+            return value_U
+        elif _d:
             return value_D
-        elif self._dprime:
+        elif _dprime:
             return value_DP
-        else:
-            return value_1
+        return value_1
+
+    @staticmethod
+    @lru_cache(25)
+    def _logic(_d, _dprime, _unknown):
+        if _d and _dprime:
+            return value_0
+        elif _unknown:
+            return value_U
+        elif _d:
+            return value_D
+        elif _dprime:
+            return value_DP
+        return value_1
 
 
 class NandGate(AndGate):
@@ -329,20 +375,51 @@ class OrGate(Gate):
         self.type = "OR"
 
     def logic(self) -> Value:
-        super().logic()
-        if self._one:
+        self._reset_logic()
+        for node in self.input_nodes:
+            if node.value is value_1:
+                return value_1
+            self.__dict__[node.value.key] = True
+        # return self._logic(self._d, self._dprime, self._unknown)
+        return self._logic(self._d, self._dprime, self._unknown)
+
+        # if self._d and self._dprime:
+        #     return value_1
+        # elif self._unknown:
+        #     return value_U
+        # elif self._d:
+        #     return value_D
+        # elif self._dprime:
+        #     return value_DP
+        # else:
+        #     return value_0
+
+    # @lru_cache(25)
+    # def _logic(self, _d, _dprime, _unknown):
+    #     if self._d and self._dprime:
+    #         return value_1
+    #     elif self._unknown:
+    #         return value_U
+    #     elif self._d:
+    #         return value_D
+    #     elif self._dprime:
+    #         return value_DP
+    #     else:
+    #         return value_0
+
+    @staticmethod
+    @lru_cache(25)
+    def _logic(_d, _dprime, _unknown):
+        if _d and _dprime:
             return value_1
-        elif self._d and self._dprime:
-            return value_1
-        elif self._unknown:
+        elif _unknown:
             return value_U
-        elif self._d:
+        elif _d:
             return value_D
-        elif self._dprime:
+        elif _dprime:
             return value_DP
         else:
             return value_0
-
 
 class NorGate(OrGate):
     def __init__(self, name):
@@ -413,12 +490,11 @@ class BuffGate(Gate):
 class NotGate(BuffGate):
     def __init__(self, name):
         super().__init__(name)
-        self.type = "NOR"
+        self.type = "NOT"
 
     def logic(self) -> Value:
-        if isinstance(super(NotGate, self).logic(), type):
-            print()
-        return ~(super(NotGate, self).logic())
+        return ~self.input_nodes[0].value
+        # return ~(super(NotGate, self).logic())
 
 
 class FlipFlop(Gate):

@@ -35,29 +35,8 @@ def fault_coverage_comparison(circuit: CircuitSimulator, args: Type[Args]):
         results = [None, None, None, None, None]
         processes = []
 
-        def run_batch(s, t, ga, gl, n):
-            circuit = CircuitSimulator(**vars(args))
-            results[n] = circuit.run_batch(s, t, ga, gl)
 
-        iterator = itertools.count()
-        # for (name, taps) in configs:
-        #     run_batch(args.seed, taps, False, True, next(iterator))
 
-        # for name, taps in configs:
-        #     p = multiprocessing.Process(target=run_batch, args=(args.seed, taps, False, True, next(iterator)))
-        #     p.start()
-        #     processes.append(p)
-        # for process in processes:
-        #     process.join()
-        #
-
-        # with concurrent.futures.ProcessPoolExecutor() as executor:
-        #     results = [
-        #         executor.submit(run_batch, (args.seed, taps, False, True)) for (name, taps) in configs
-        #     ]
-        #     actual_results = []
-        #     for f in concurrent.futures.as_completed(results):
-        #         actual_results.append(f.result())
         pass
     else:
         results = [
@@ -72,7 +51,7 @@ def fault_coverage_comparison(circuit: CircuitSimulator, args: Type[Args]):
 
 
 def fault_coverage(circuit: CircuitSimulator, args: Type[Args]):
-    result = circuit.run_batch(args.seed, args.taps)
+    result = circuit.run_batch(args.seed, args.taps, get_all_coverage=False)
     with open("_%s_remaining_faults.csv" % args.bench, 'w', newline='') as f:
         w = csv.writer(f)
         w.writerow([str(fault) for fault in result.remaining_faults])
@@ -91,7 +70,8 @@ def fault_coverage(circuit: CircuitSimulator, args: Type[Args]):
             fault_writer.writerow(faults)
 
 
-if __name__ == '__main__':
+
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--bench', type=str, default='circuit.bench', help='input bench file')
     parser.add_argument('-s', '--seed', type=str, default='0x123456789abc', help='seed for tv generation')
@@ -101,8 +81,9 @@ if __name__ == '__main__':
     parser.add_argument('--no-verbose', dest='verbose', default=True, action='store_false')
     parser.add_argument('-c', '--compare', dest='compare', default=False, action='store_true')
     args = parser.parse_args(namespace=Args)
-    args.seed = int(args.seed, 16 if args.seed.startswith('0x') else \
-        2 if args.seed.startswith('0b') else 1)
+    if type(args.seed) is str:
+        args.seed = int(args.seed, 16 if args.seed.startswith('0x') else \
+            2 if args.seed.startswith('0b') else 1)
     if args.prompt:
         # new_args = prompt_arguments()
         # for attribute, new_value in new_args.items():
@@ -110,10 +91,17 @@ if __name__ == '__main__':
         pass
     circuit_simulator = CircuitSimulator(**vars(args))
 
-    begin = time()
+    # begin = time()
     if args.compare:
         fault_coverage_comparison(circuit_simulator, args)
     else:
         fault_coverage(circuit_simulator, args)
-    print("Ran in %s" % (time()-begin))
+    # print("Ran in %s" % (time()-begin))
 
+if __name__ == '__main__':
+    # main()
+
+    begin = time()
+    for _ in range(0, 1):
+        main()
+    print(time() - begin)
