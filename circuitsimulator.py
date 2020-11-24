@@ -36,22 +36,26 @@ class CircuitSimulator:
 
     def __next__(self):
         if next(self.iteration) < self.cycle_resolution_length:
-            relevant_node_set = self.relevant_nodes
-            # relevant_node_set = set(self.relevant_nodes)
-            # relevant_node_set.difference_update(
-            #     output_node for node in relevant_node_set.copy()
-            #     for output_node in node.output_nodes
-            #     # if node.value is value_U
-            # )
-            for node in relevant_node_set:
+            for node in self.relevant_nodes:
                 node.logic()
-            for node in relevant_node_set:
+            for node in self.relevant_nodes:
                 node.update()
+
+            # self.relevant_nodes = {
+            #     output_node for node in self.relevant_nodes.copy()
+            #     for output_node in node.output_nodes
+            # }.difference(
+            #     output_node for node in self.relevant_nodes.copy()
+            #     for output_node in node.output_nodes
+            #     if node is value_U
+            # )
 
             self.relevant_nodes = {
                 output_node for node in self.relevant_nodes
                 for output_node in node.output_nodes
             }
+
+
 
         else:
             # self.relevant_nodes.clear()

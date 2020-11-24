@@ -250,7 +250,7 @@ class Node:
         )
 
     @staticmethod
-    @lru_cache(6)
+    @lru_cache(15)
     def propagate_fault(value: Value, stuck_at: Value):
         if not stuck_at:
             return value
