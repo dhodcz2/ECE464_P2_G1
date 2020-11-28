@@ -1,21 +1,8 @@
-
-from contextlib import contextmanager
-
-@contextmanager
-def context():
-    print("Entered")
-    yield
-    print("Exited")
-
-
-def use_context():
-    with context():
-        print("returned True")
-        return True
-
-
-def test_context():
-    if use_context():
-        print("Got True")
-
-test_context()
+from typing import Set
+from itertools import zip_longest
+list1 = [{1}, {3}, {5}]
+list2 = [{2}, {4}, {6}, {8}, {10}]
+a: Set[int]
+b: Set[int]
+x = [a.union(b) for a, b in zip_longest(list1, list2, fillvalue=set())]
+print(x)

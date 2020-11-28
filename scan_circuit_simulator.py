@@ -1,4 +1,5 @@
 from circuitsimulator_redone import *
+from itertools import zip_longest
 
 
 class ScanCircuitSimulator(CircuitSimulator):
@@ -13,30 +14,153 @@ class ScanCircuitSimulator(CircuitSimulator):
             node.value = value
 
     def scan_out(self) -> List[Value]:
+        return [node.value for node in self.nodes.scan_out_nodes]
 
+    def propagate(self, path: Iterable[Set['ScanNode']]):
+        try:
+            for nodes in path:
+                for node in nodes:
+                    node.logic()
+                for node in nodes:
+                    node.update()
+            self.nodes.capture()
+        except:
+            print()
 
-    @staticmethod
-    def compile(gates: 'LineParser.Gates') -> 'CircuitSimulator.Nodes':
-        """From the LineParser Gates result, construct the nodes of the circuit"""
-        nodes_instance = CircuitSimulator.Nodes()
+    def propagate_generator(self, path: Iterable[Set[Node]]) -> Generator[Set[Node], None, None]:
+        for nodes in path:
+            for node in nodes:
+                node.logic()
+            for node in nodes:
+                node.update()
+            yield nodes
+        self.nodes.capture()
+
+    def apply_vector(self, test_vector: TestVector):
+        for node, value in zip(self.nodes.input_nodes.values(), test_vector):
+            node.vector_assignment = value
+            node.value = value
+        propagate(self.nodes.input_propagation_path)
+
+    @contextmanager
+    def apply_fault(self, fault: Fault) -> Generator[Value, None, None]:
+        self.fault = fault
+        if fault.input_node:
+            self.nodes.faulty_node = InputFault(fault.node, fault.input_node, fault.stuck_at)
+        else:
+            fault.node.stuck_at = fault.stuck_at
+            self.nodes.faulty_node = fault.node
+        self.propagate(self.nodes.fault_propagation_path)
+        yield
+        self.nodes.faulty_node.local_reset()
+        for flip_flop in self.nodes.flip_flops:
+            flip_flop.local_reset()
+        self.propagate(self.nodes.fault_propagation_path)
+
+    def detect_fault(self, fault: Fault) -> List[Value]:
+        with self.apply_fault(fault):
+            return self.scan_out()
+
+    def detect_faults(self, tv: TestVector) -> List[Fault]:
+        self.apply_vector(tv)
+        propagate(self.nodes.input_propagation_path)
+        scan_out = self.scan_out()
+        return [
+            fault for fault in self.faults
+            if not self.identical(scan_out, self.detect_fault(fault))
+        ]
+
+    def detect_and_eliminate_faults(self, tv: TestVector, faults: Set[Fault]) -> List[Fault]:
+        known_faults = self.tv_lookup[tv]
+        detected_faults = faults.intersection(known_faults)
+        undetected_faults = faults.difference(known_faults)
+        self.apply_vector(tv)
+        scan_out = self.scan_out()
+        detected_faults.update(
+            fault for fault in undetected_faults
+            if self.identical(scan_out, self.detect_fault(fault))
+        )
+        faults.difference_update(detected_faults)
+        return list(detected_faults)
+
+    def compile(self, gates: CircuitSimulator.LineParser.Gates):
+        self.nodes = self.Nodes()
         for name, gate in gates.gates.items():
             node = ScanNode(gate)
             node.type = gates.node_types.get(name, "INTERM.")
             if node.type == "INTERM.":
-                nodes_instance.intermediate_nodes[name] = node
+                self.nodes.intermediate_nodes[name] = node
             elif node.type == "INPUT":
-                nodes_instance.input_nodes[name] = node
+                self.nodes.input_nodes[name] = node
             elif node.type == "OUTPUT":
-                nodes_instance.output_nodes[name] = node
+                self.nodes.output_nodes[name] = node
+            if node.gate.type == "DFF":
+                self.nodes.flip_flops.append(node)
         for name, input_names in gates.inputs.items():
-            nodes_instance[name].input_nodes = [nodes_instance[input_name] for input_name in input_names]
+            self.nodes[name].input_nodes = [self.nodes[input_name] for input_name in input_names]
             for input_name in input_names:
-                nodes_instance[input_name].output_nodes.append(nodes_instance[name])
+                self.nodes[input_name].output_nodes.append(self.nodes[name])
         for name, node_type in gates.node_types.items():
-            nodes_instance[name].type = node_type
+            self.nodes[name].type = node_type
 
-        nodes_instance.flip_flops = {node for node in nodes_instance if isinstance(node, FlipFlop)}
-        return nodes_instance
+    class Nodes(CircuitSimulator.Nodes):
+        def __init__(self):
+            self.input_nodes: OrderedDict[str, ScanNode] = collections.OrderedDict()
+            self.intermediate_nodes: Dict[str, ScanNode] = {}
+            self.output_nodes: OrderedDict[str, ScanNode] = collections.OrderedDict()
+            self.flip_flops: List[ScanNode] = []
+            self.faulty_node: Union[InputFault, Node, None] = None
+
+        @functools.cached_property
+        def input_propagation_path(self) -> List[Set['ScanNode']]:
+            result = [frontier := {
+                output_node for node
+                in self.scan_in_nodes
+                for output_node in node.outputs_that_are_not_flip_flops
+            }]
+            while (frontier := {
+                output_node for node
+                in frontier
+                for output_node in node.outputs_that_are_not_flip_flops
+            }):
+                result.append(frontier)
+            return result
+
+        @functools.cached_property
+        def flip_flop_propagation_path(self) -> List[Set['ScanNode']]:
+            result = [frontier := {
+                output_node for node
+                in self.flip_flops
+                for output_node in node.outputs_that_are_not_flip_flops
+            }]
+            while (frontier := {
+                output_node for node
+                in frontier
+                for output_node in node.outputs_that_are_not_flip_flops
+            }):
+                result.append(frontier)
+            return result
+
+        @staticmethod
+        def node_propagation_path(node: Node) -> Generator[Set[Node], None, None]:
+            yield (
+                frontier := {*node.output_nodes}
+            )
+            while (frontier := {
+                output_node for node
+                in frontier
+                for output_node in node.outputs_that_are_not_flip_flops
+            }):
+                yield frontier
+
+        @property
+        def fault_propagation_path(self) -> Generator[Set['ScanNode'], None, None]:
+            a: Set[ScanNode]
+            b: Set[ScanNode]
+            for a, b in zip_longest(
+                self.node_propagation_path(self.faulty_node), self.flip_flop_propagation_path, fillvalue={}
+            ):
+                yield a.union(b)
 
 
 class ScanNode(Node):
@@ -111,30 +235,6 @@ class ScanNode(Node):
         else:
             return value
 
-    @property
-    def fault_propagation_path(self) -> Generator[Set['Node'], None, None]:
-        frontier = {self}
-        yield frontier
-        while (any(node.value.propagates_fault for node in frontier) and
-               (frontier := {
-                   output_node for node
-                   in frontier
-                   for output_node in node.output_nodes
-               })
-        ):
-            yield frontier
-
-    @property
-    def propagation_path(self) -> Generator[Set['Node'], None, None]:
-        frontier = {self}
-        yield frontier
-        while (frontier := {
-            output_node for node
-            in frontier
-            for output_node in node.output_nodes
-        }):
-            yield frontier
-
 
 class ScanInputFault(ScanNode):
     __slots__ = 'output_nodes', 'genuine_node', 'stuck_at'
@@ -174,9 +274,7 @@ class ScanInputFault(ScanNode):
     @property
     def fault_propagation_path(self) -> Generator[Set['Node'], None, None]:
         return self.output_nodes[0].fault_propagation_path
-        # return self.genuine_node.fault_propagation_path
 
     @property
     def propagation_path(self) -> Generator[Set['Node'], None, None]:
         return self.output_nodes[0].propagation_path
-        # return self.genuine_node.propagation_path

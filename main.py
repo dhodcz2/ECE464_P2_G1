@@ -1,7 +1,8 @@
 from time import time
 from testvector import *
 # from circuitsimulator import *
-from circuitsimulator_redone import *
+# from circuitsimulator_redone import *
+from scan_circuit_simulator import *
 import argparse
 from nodes import *
 import csv
@@ -73,7 +74,10 @@ def main():
         # for attribute, new_value in new_args.items():
         #     setattr(args, attribute, new_value)
         pass
-    circuit_simulator = CircuitSimulator(**vars(args))
+    if args.sequential:
+        circuit_simulator = ScanCircuitSimulator(**vars(args))
+    else:
+        circuit_simulator = CircuitSimulator(**vars(args))
 
     # begin = time()
     if args.compare:

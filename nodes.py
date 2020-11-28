@@ -129,7 +129,7 @@ class Node:
     # 'type', 'corridor', 'implication'
     def __init__(self, gate: Gate):
         gate.node = self
-        self.gate = gate
+        self.gate: Union[Gate, FlipFlop] = gate
         self.input_nodes: List[Node, InputFault] = []
         self.output_nodes: List[Node, InputFault] = []
         self.stuck_at: Optional[Value] = None
@@ -219,9 +219,6 @@ class Node:
         ):
             yield frontier
 
-
-
-
     @property
     def propagation_path(self) -> Generator[Set['Node'], None, None]:
         frontier = {self}
@@ -232,6 +229,10 @@ class Node:
             for output_node in node.output_nodes
         }):
             yield frontier
+
+    @functools.cached_property
+    def outputs_that_are_not_flip_flops(self) -> List['Node']:
+        return [output_node for output_node in self.output_nodes if not isinstance(output_node.gate, FlipFlop)]
 
 
 class InputFault(Node):
@@ -277,7 +278,6 @@ class InputFault(Node):
     @property
     def propagation_path(self) -> Generator[Set['Node'], None, None]:
         return self.output_nodes[0].propagation_path
-        # return self.genuine_node.propagation_path
 
 
 class AndGate(Gate):
@@ -445,13 +445,23 @@ class FlipFlop(Gate):
         super().__init__(name)
         self.type = "DFF"
         self._data = value_U
+        self._data_new = value_U
 
     @property
-    def value(self) -> Union[Value]:
+    def value(self) -> Value:
         return self._data
+
+    @value.setter
+    def value(self, val: Value):
+        pass
+
+    @property
+    def value_new(self):
+        return self._data_new
+
+    @value_new.setter
+    def value_new(self, val: Value):
+        self._data_new = val
 
     def capture(self):
         self._data = self.value_new
-
-    def data(self):
-        return self._data

@@ -27,9 +27,7 @@ class CircuitSimulator:
         self.tv_lookup: DefaultDict[TestVector, Set[Fault]] = defaultdict(set)
         self.nodes: CircuitSimulator.Nodes
         self.kwargs = kwargs
-        self.compile(
-            self.LineParser(kwargs['bench']).parse_file()
-        )
+        self.compile( self.LineParser(kwargs['bench']).parse_file() )
 
     @staticmethod
     def local_faults(node: Node) -> List[Fault]:
@@ -53,7 +51,8 @@ class CircuitSimulator:
             for fault in faults
         }
 
-    def propagate(self, path: Iterable[Set[Node]]) -> int:
+    @staticmethod
+    def propagate(path: Iterable[Set[Node]]):
         # self.iteration_printer = self.IterationPrinter(self.tv, self.fault, self.nodes)
         for nodes in path:
             for node in nodes:
@@ -62,35 +61,13 @@ class CircuitSimulator:
                 node.update()
 
     @staticmethod
-    def propagate_fault(path: Iterable[Set[Node]]) -> int:
-        counter = itertools.count()
-        for nodes in path:
-            for node in nodes:
-                node.logic()
-            for node in nodes:
-                node.update()
-            next(counter)
-        return next(counter)
-
-    @staticmethod
-    def propagate_fault_generator(path: Iterable[Set[Node]]) -> int:
+    def propagate_generator(path: Iterable[Set[Node]]) -> Generator[Set[Node], None, None]:
         for nodes in path:
             for node in nodes:
                 node.logic()
             for node in nodes:
                 node.update()
             yield nodes
-
-    # @staticmethod
-    # def undo_propagate_fault(path: Iterable[Set[Node]], count: int) -> int:
-    #     counter = itertools.count(count, -1)
-    #     while next(counter):
-    #         nodes = next(path)
-    #         for node in nodes:
-    #             node.logic()
-    #         for node in nodes:
-    #             node.update()
-
 
 
     def apply_vector(self, test_vector: TestVector):
@@ -107,13 +84,10 @@ class CircuitSimulator:
         else:
             fault.node.stuck_at = fault.stuck_at
             self.nodes.faulty_node = fault.node
-        #     TODO: Return number of iterations
-        # count = self.propagate_fault(self.nodes.faulty_node.fault_propagation_path)
-        backtrack = [nodes for nodes in self.propagate_fault_generator(self.nodes.faulty_node.fault_propagation_path)]
+        backtrack = [nodes for nodes in self.propagate_generator(self.nodes.faulty_node.fault_propagation_path)]
         yield
         self.nodes.faulty_node.local_reset()
         # TODO: Use an integer to specify how many sets should be traversed
-        # self.undo_propagate_fault(self.nodes.faulty_node.propagation_path, count)
         self.propagate(backtrack)
 
 
@@ -342,8 +316,12 @@ class CircuitSimulator:
             self.input_nodes: OrderedDict[str, Node] = collections.OrderedDict()
             self.intermediate_nodes: Dict[str, Node] = {}
             self.output_nodes: OrderedDict[str, Node] = collections.OrderedDict()
-            self.flip_flops: List[FlipFlop] = []
+            self.flip_flops: List[Node] = []
             self.faulty_node: Union[InputFault, Node, None] = None
+
+        def capture(self):
+            for flip_flop in self.flip_flops:
+                flip_flop.gate.capture()
 
         @functools.cached_property
         def _nodes(self) -> Dict[str, Node]:
@@ -356,6 +334,7 @@ class CircuitSimulator:
         @functools.cached_property
         def scan_out_nodes(self) -> List[Union[Node, InputFault]]:
             return [*self.output_nodes.values(), *self.flip_flops]
+
 
         def __contains(self, item: str):
             return True if self._nodes.get(item) else False
@@ -393,32 +372,3 @@ class CircuitSimulator:
                 result.append(frontier)
             return result
 
-        @functools.cached_property
-        def fault_propagation_path(self) -> List[Set[Node]]:
-            result = [frontier := {
-                output_node for node
-                in self.flip_flops
-                for output_node in node.output_nodes
-            }]
-            while (frontier := {
-                output_node for node
-                in frontier
-                for output_node in node.output_nodes
-            }):
-                result.append(frontier)
-            return result
-
-        @functools.cached_property
-        def input_and_flip_flop_propagation_path(self) -> List[Set[Node]]:
-            result = [frontier := {
-                output_node for node
-                in (*self.flip_flops, *self.input_nodes)
-                for output_node in node.output_nodes
-            }]
-            while (frontier := {
-                output_node for node
-                in frontier
-                for output_node in node.output_nodes
-            }):
-                result.append(frontier)
-            return result
