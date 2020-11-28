@@ -113,18 +113,18 @@ if __name__ == '__main__':
 
     end = time()
     print(end - start)
-    # x: List[Value] = [values[randint(0, 4)] for _ in range(0, 1000)]
+    # _key: List[Value] = [values[randint(0, 4)] for _ in range(0, 1000)]
     # y: List[Value] = [values[randint(0, 4)] for _ in range(0, 1000)]
     # start = time()
-    # by_map = Count.by_map(x, y)
+    # by_map = Count.by_map(_key, y)
     # end = time()
     # print(f"By map: {end - start}")
     # start = time()
-    # by_ifelse = Count.by_ifelse(x, y)
+    # by_ifelse = Count.by_ifelse(_key, y)
     # end = time()
     # print(f"By ifelse: {end - start}")
     # start = time()
-    # by_map_string = Count.by_map_string(x, y)
+    # by_map_string = Count.by_map_string(_key, y)
     # end = time()
     # print(f"By map_string: {end - start}")
 from time import time

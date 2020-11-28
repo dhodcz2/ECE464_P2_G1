@@ -1,20 +1,21 @@
-from functools import lru_cache
-import weakref
-class Struct:
-    member: int
-    @lru_cache
-    def __new__(cls, *args, **kwargs):
-        return super().__new__(cls)
 
-    def __init__(self, m: int):
-        self.member = m
+from contextlib import contextmanager
 
-    def __hash__(self):
-        return hash(1)
+@contextmanager
+def context():
+    print("Entered")
+    yield
+    print("Exited")
 
 
-x = {Struct(1), Struct(2)}
+def use_context():
+    with context():
+        print("returned True")
+        return True
 
-x.add(Struct(3))
-x
 
+def test_context():
+    if use_context():
+        print("Got True")
+
+test_context()

@@ -1,4 +1,4 @@
-from typing import List, List, Set, Union, Tuple, Optional
+from typing import List, List, Set, Union, Tuple, Optional, Iterable
 import functools
 import itertools
 from nodes import Value
@@ -7,6 +7,7 @@ import copy
 
 
 class TestVector:
+    __slots__ = ('values')
     def __init__(self, values: str = ''):
         self.values = [Value(int(bit)) for bit in values]
 
@@ -30,13 +31,14 @@ class TestVector:
         return int(repr(self), 2)
 
     def __hash__(self):
-        return hash(int(self))
+        return hash(repr(self))
+        # return hash(int(self))
 
     def __getitem__(self, item) -> 'TestVector':
         return TestVector.from_values(self.values[item])
 
     @classmethod
-    def from_values(cls, values: List[Value]):
+    def from_values(cls, values: Iterable[Value]):
         obj = TestVector()
         obj.values = values
         return obj

@@ -6,8 +6,8 @@ from time import time
 
 #
 #
-# def remove_first(x: List[int]):
-#     x.pop()
+# def remove_first(_key: List[int]):
+#     _key.pop()
 #
 #
 # test = [1, 2, 3]
@@ -16,15 +16,15 @@ from time import time
 #
 # from time import time
 #
-# x = [1, 2, 3]
+# _key = [1, 2, 3]
 # begin = time()
 # for _ in range(0, 10000):
-#     x[0]
+#     _key[0]
 # print(time() - begin)
 #
 # begin = time()
 # for _ in range(0, 10000):
-#     next(iter(x))
+#     next(iter(_key))
 # print(time() - begin)
 #
 # from functools import singledispatch
@@ -80,29 +80,29 @@ class OuterStruct:
         )
 
 
-# x: Set[Struct] = {Struct(0), Struct(1), Struct(2)}
+# _key: Set[Struct] = {Struct(0), Struct(1), Struct(2)}
 x = OuterStruct([Struct(0), Struct(1), Struct(2)])
 
-# for member in x.struct_members:
+# for member in _key.struct_members:
 #     print(member)
-# x.structs[0].member = 4
-# x.structs[1].member = 5
-# x.structs[2].member = 6
+# _key.structs[0].member = 4
+# _key.structs[1].member = 5
+# _key.structs[2].member = 6
 # print("here")
-# for member in x.struct_members:
+# for member in _key.struct_members:
 #     print(member)
 #
 # def by_iterator():
-#     global x
+#     global _key
 #     result = 0
-#     for member in (struct.member for struct in x):
+#     for member in (struct.member for struct in _key):
 #         result += member
 #
 #
 # def by_vector():
-#     global x
+#     global _key
 #     result = 0
-#     for struct in x:
+#     for struct in _key:
 #         result += struct.member
 #
 #
@@ -118,7 +118,7 @@ def by_cached_iterator():
     result = 0
     for member in x:
         result += member
-    # for member in x.struct_members():
+    # for member in _key.struct_members():
     #     result += member
 def by_class_generator():
     global x

@@ -1,14 +1,10 @@
-from faults import *
 from time import time
-import concurrent.futures
 from testvector import *
-from circuitsimulator import *
-import multiprocessing
-from copy import deepcopy
+# from circuitsimulator import *
+from circuitsimulator_redone import *
 import argparse
-from typing import List, Type, Iterable, Iterator, Generator
-from dataclasses import dataclass
 from nodes import *
+import csv
 
 configs = [
     ("n-bit counter", set()),
@@ -28,21 +24,11 @@ class Args(argparse.Namespace):
     verbose: bool
     compare: bool
 
-
 def fault_coverage_comparison(circuit: CircuitSimulator, args: Type[Args]):
-    results: List[Tuple[str, List[Tuple[TestVector, List[Fault]]]]] = []
-    if args.multiprocessing:
-        results = [None, None, None, None, None]
-        processes = []
-
-
-
-        pass
-    else:
-        results = [
-            (name, circuit.run_batch(args.seed, taps, get_all_coverage=False).fault_coverage_list)
-            for (name, taps) in configs
-        ]
+    results = [
+        (name, circuit.run_batch(args.seed, taps, get_all_coverage=False, sequential=args.sequential).fault_coverage_list)
+        for (name, taps) in configs
+    ]
     with open("_%s_seed_%s.csv" % (args.bench, hex(args.seed)), 'w') as f:
         w = csv.writer(f, delimiter=',', lineterminator='\n')
         for (name, fault_coverage_list) in results:
@@ -51,14 +37,13 @@ def fault_coverage_comparison(circuit: CircuitSimulator, args: Type[Args]):
 
 
 def fault_coverage(circuit: CircuitSimulator, args: Type[Args]):
-    result = circuit.run_batch(args.seed, args.taps, get_all_coverage=False)
+    result = circuit.run_batch(args.seed, args.taps, sequential=args.sequential)
     with open("_%s_remaining_faults.csv" % args.bench, 'w', newline='') as f:
         w = csv.writer(f)
         w.writerow([str(fault) for fault in result.remaining_faults])
     with open("_%s_all.csv" % args.bench, 'w') as f:
         tv_writer = csv.writer(f, delimiter=',', lineterminator=':')
         fault_writer = csv.writer(f, delimiter=',', lineterminator='\n')
-        # for tv, faults in result.fault_coverage_all.items():
         for tv, faults in result.fault_coverage_all:
             tv_writer.writerow([str(tv)])
             fault_writer.writerow(faults)
@@ -69,8 +54,6 @@ def fault_coverage(circuit: CircuitSimulator, args: Type[Args]):
             tv_writer.writerow([str(tv)])
             fault_writer.writerow(faults)
 
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-b', '--bench', type=str, default='circuit.bench', help='input bench file')
@@ -80,6 +63,7 @@ def main():
     parser.add_argument('-mp', '--multiprocessing', dest='multiprocessing', default=False, action='store_true')
     parser.add_argument('--no-verbose', dest='verbose', default=True, action='store_false')
     parser.add_argument('-c', '--compare', dest='compare', default=False, action='store_true')
+    parser.add_argument('-sq', '--sequential', dest='sequential', default=False, action='store_true')
     args = parser.parse_args(namespace=Args)
     if type(args.seed) is str:
         args.seed = int(args.seed, 16 if args.seed.startswith('0x') else \
@@ -99,8 +83,6 @@ def main():
     # print("Ran in %s" % (time()-begin))
 
 if __name__ == '__main__':
-    # main()
-
     begin = time()
     for _ in range(0, 1):
         main()
