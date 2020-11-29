@@ -465,3 +465,6 @@ class FlipFlop(Gate):
 
     def capture(self):
         self._data = self.value_new
+
+    def clear(self):
+        self._data = self.node.vector_assignment

@@ -12,59 +12,58 @@ class ScanCircuitSimulator(CircuitSimulator):
         for node, value in zip(self.nodes.scan_in_nodes, test_vector):
             node.vector_assignment = value
             node.value = value
+        propagate(self.nodes.input_propagation_path)
 
     def scan_out(self) -> List[Value]:
         return [node.value for node in self.nodes.scan_out_nodes]
 
     def propagate(self, path: Iterable[Set['ScanNode']]):
-        try:
-            for nodes in path:
-                for node in nodes:
-                    node.logic()
-                for node in nodes:
-                    node.update()
-            self.nodes.capture()
-        except:
-            print()
+        for nodes in path:
+            for node in nodes:
+                node.logic()
+            for node in nodes:
+                node.update()
+        # self.nodes.capture()
 
-    def propagate_generator(self, path: Iterable[Set[Node]]) -> Generator[Set[Node], None, None]:
+    def propagate_generator(self, path: Iterable[Set[Node]]) -> Generator[Set['ScanNode'], None, None]:
         for nodes in path:
             for node in nodes:
                 node.logic()
             for node in nodes:
                 node.update()
             yield nodes
-        self.nodes.capture()
-
-    def apply_vector(self, test_vector: TestVector):
-        for node, value in zip(self.nodes.input_nodes.values(), test_vector):
-            node.vector_assignment = value
-            node.value = value
-        propagate(self.nodes.input_propagation_path)
+        # self.nodes.capture()
 
     @contextmanager
     def apply_fault(self, fault: Fault) -> Generator[Value, None, None]:
+        # TODO: Optimize
         self.fault = fault
         if fault.input_node:
             self.nodes.faulty_node = InputFault(fault.node, fault.input_node, fault.stuck_at)
         else:
             fault.node.stuck_at = fault.stuck_at
             self.nodes.faulty_node = fault.node
-        self.propagate(self.nodes.fault_propagation_path)
+        # fault_path = self.nodes.fault_propagation_path
+        self.propagate(self.nodes.input_propagation_path)
+        self.nodes.capture()
         yield
         self.nodes.faulty_node.local_reset()
         for flip_flop in self.nodes.flip_flops:
             flip_flop.local_reset()
-        self.propagate(self.nodes.fault_propagation_path)
+            flip_flop.gate.clear()
+        propagate(self.nodes.input_propagation_path)
 
     def detect_fault(self, fault: Fault) -> List[Value]:
         with self.apply_fault(fault):
             return self.scan_out()
 
     def detect_faults(self, tv: TestVector) -> List[Fault]:
-        self.apply_vector(tv)
+        # self.apply_vector(tv)
+        self.scan_in(tv)
         propagate(self.nodes.input_propagation_path)
+        self.nodes.capture()
         scan_out = self.scan_out()
+        self.nodes.clear()
         return [
             fault for fault in self.faults
             if not self.identical(scan_out, self.detect_fault(fault))
@@ -144,7 +143,7 @@ class ScanCircuitSimulator(CircuitSimulator):
         @staticmethod
         def node_propagation_path(node: Node) -> Generator[Set[Node], None, None]:
             yield (
-                frontier := {*node.output_nodes}
+                frontier := {*node.outputs_that_are_not_flip_flops}
             )
             while (frontier := {
                 output_node for node
@@ -158,15 +157,19 @@ class ScanCircuitSimulator(CircuitSimulator):
             a: Set[ScanNode]
             b: Set[ScanNode]
             for a, b in zip_longest(
-                self.node_propagation_path(self.faulty_node), self.flip_flop_propagation_path, fillvalue={}
+                self.faulty_node.propagation_path, self.flip_flop_propagation_path, fillvalue=set()
             ):
                 yield a.union(b)
+
+        def clear(self):
+            for flip_flop in self.flip_flops:
+                flip_flop.gate.clear()
 
 
 class ScanNode(Node):
     def __init__(self, gate: Gate):
         gate.node = self
-        self.gate = gate
+        self.gate: Union[Gate, FlipFlop] = gate
         self.input_nodes: List[ScanNode, InputFault] = []
         self.output_nodes: List[ScanNode, InputFault] = []
         self.stuck_at: Optional[Value] = None
@@ -235,6 +238,17 @@ class ScanNode(Node):
         else:
             return value
 
+    @functools.cached_property
+    def propagation_path(self):
+        result = [frontier := {self}]
+        while (frontier := {
+            output_node for node
+            in frontier
+            for output_node in node.outputs_that_are_not_flip_flops
+        }):
+            result.append(frontier)
+        return result
+
 
 class ScanInputFault(ScanNode):
     __slots__ = 'output_nodes', 'genuine_node', 'stuck_at'
@@ -271,9 +285,6 @@ class ScanInputFault(ScanNode):
     def value(self) -> Value:
         return self.propagate_fault(self.genuine_node.value, self.stuck_at)
 
-    @property
-    def fault_propagation_path(self) -> Generator[Set['Node'], None, None]:
-        return self.output_nodes[0].fault_propagation_path
 
     @property
     def propagation_path(self) -> Generator[Set['Node'], None, None]:
