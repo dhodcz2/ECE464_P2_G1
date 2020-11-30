@@ -3,6 +3,7 @@ from testvector import *
 # from circuitsimulator import *
 # from circuitsimulator_redone import *
 from scan_circuit_simulator import *
+from interface import *
 import argparse
 from nodes import *
 import csv
@@ -60,7 +61,7 @@ def main():
     parser.add_argument('-b', '--bench', type=str, default='circuit.bench', help='input bench file')
     parser.add_argument('-s', '--seed', type=str, default='0x123456789abc', help='seed for tv generation')
     parser.add_argument('-t', '--taps', type=list, default=[2, 7], help='tuple in LFSR')
-    parser.add_argument('--no-prompt', dest='prompt', action='store_false', default=False)
+    parser.add_argument('--no-prompt', dest='prompt', action='store_false', default=True)
     parser.add_argument('-mp', '--multiprocessing', dest='multiprocessing', default=False, action='store_true')
     parser.add_argument('--no-verbose', dest='verbose', default=True, action='store_false')
     parser.add_argument('-c', '--compare', dest='compare', default=False, action='store_true')
@@ -70,10 +71,10 @@ def main():
         args.seed = int(args.seed, 16 if args.seed.startswith('0x') else \
             2 if args.seed.startswith('0b') else 1)
     if args.prompt:
-        # new_args = prompt_arguments()
-        # for attribute, new_value in new_args.items():
-        #     setattr(args, attribute, new_value)
-        pass
+        new_args = prompt_arguments()
+        for attribute, new_value in new_args.items():
+            setattr(args, attribute, new_value)
+        # pass
     if args.sequential:
         circuit_simulator = ScanCircuitSimulator(**vars(args))
     else:

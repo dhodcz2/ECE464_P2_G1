@@ -28,6 +28,7 @@ class CircuitSimulator:
         self.nodes: CircuitSimulator.Nodes
         self.kwargs = kwargs
         self.compile( self.LineParser(kwargs['bench']).parse_file() )
+        self.tv: Union[None, TestVector] = None
 
     @staticmethod
     def local_faults(node: Node) -> List[Fault]:
@@ -51,14 +52,18 @@ class CircuitSimulator:
             for fault in faults
         }
 
-    @staticmethod
-    def propagate(path: Iterable[Set[Node]]):
+    # @staticmethod
+    def propagate(self, path: Iterable[Set[Node]]):
+        # TODO: If you want to have a pretty printout of values you can uncomment self.iteration_printer
         # self.iteration_printer = self.IterationPrinter(self.tv, self.fault, self.nodes)
         for nodes in path:
             for node in nodes:
                 node.logic()
             for node in nodes:
                 node.update()
+            # self.iteration_printer(self.nodes)
+        # print(self.iteration_printer)
+
 
     @staticmethod
     def propagate_generator(path: Iterable[Set[Node]]) -> Generator[Set[Node], None, None]:
@@ -71,10 +76,11 @@ class CircuitSimulator:
 
 
     def apply_vector(self, test_vector: TestVector):
+        self.tv = test_vector
         for node, value in zip(self.nodes.input_nodes.values(), test_vector):
             node.vector_assignment = value
             node.value = value
-        propagate(self.nodes.input_propagation_path)
+        self.propagate(self.nodes.input_propagation_path)
 
     @contextmanager
     def apply_fault(self, fault: Fault) -> Generator[Value, None, None]:
@@ -97,7 +103,7 @@ class CircuitSimulator:
 
     def detect_faults(self, tv: TestVector) -> List[Fault]:
         self.apply_vector(tv)
-        propagate(self.nodes.input_propagation_path)
+        self.propagate(self.nodes.input_propagation_path)
         return [fault for fault in self.faults if self.detect_fault(fault)]
 
     def detect_and_eliminate_faults(self, tv: TestVector, faults: Set[Fault]) -> List[Fault]:
