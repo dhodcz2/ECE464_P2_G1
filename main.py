@@ -74,6 +74,11 @@ def main():
         new_args = prompt_arguments()
         for attribute, new_value in new_args.items():
             setattr(args, attribute, new_value)
+    with open(args.bench, 'r') as f:
+        line: str
+        for line in f:
+            if line.startswith("DFF"):
+                args.sequential = True
         # pass
     if args.sequential:
         circuit_simulator = ScanCircuitSimulator(**vars(args))
