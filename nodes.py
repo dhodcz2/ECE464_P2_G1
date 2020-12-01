@@ -219,16 +219,25 @@ class Node:
         ):
             yield frontier
 
-    @property
-    def propagation_path(self) -> Generator[Set['Node'], None, None]:
-        frontier = {self}
-        yield frontier
+    # @property
+    # def propagation_path(self) -> Generator[Set['Node'], None, None]:
+    #     yield (frontier := {self})
+    #     while (frontier := {
+    #         output_node for node
+    #         in frontier
+    #         for output_node in node.output_nodes
+    #     }):
+    #         yield frontier
+    @functools.cached_property
+    def propagation_path(self) -> List[Set['Node']]:
+        result = [frontier := {self}]
         while (frontier := {
             output_node for node
             in frontier
             for output_node in node.output_nodes
         }):
-            yield frontier
+            result.append(frontier)
+        return result
 
     @functools.cached_property
     def outputs_that_are_not_flip_flops(self) -> List['Node']:
@@ -444,27 +453,31 @@ class FlipFlop(Gate):
     def __init__(self, name):
         super().__init__(name)
         self.type = "DFF"
-        self._data = value_U
-        self._data_new = value_U
+        self.data = value_U
+        self.data_new = value_U
+
+    def logic(self) -> Value:
+        return self.input_nodes[0].value
 
     @property
     def value(self) -> Value:
-        return self._data
+        return self.data
 
     @value.setter
     def value(self, val: Value):
-        pass
+        self.data_new = val
 
     @property
     def value_new(self):
-        return self._data_new
+        return self.data_new
 
     @value_new.setter
     def value_new(self, val: Value):
-        self._data_new = val
+        self.data_new = val
 
     def capture(self):
-        self._data = self.value_new
+        self.data = self.data_new
 
     def clear(self):
-        self._data = self.node.vector_assignment
+        self.data = self.node.vector_assignment
+        self.data_new = self.node.vector_assignment

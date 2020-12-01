@@ -26,7 +26,7 @@ class Args(argparse.Namespace):
     verbose: bool
     compare: bool
 
-def fault_coverage_comparison(circuit: CircuitSimulator, args: Type[Args]):
+def fault_coverage_comparison(circuit: Union[CircuitSimulator, ScanCircuitSimulator], args: Type[Args]):
     results = [
         (name, circuit.run_batch(args.seed, taps, get_all_coverage=False, sequential=args.sequential).fault_coverage_list)
         for (name, taps) in configs
@@ -38,7 +38,7 @@ def fault_coverage_comparison(circuit: CircuitSimulator, args: Type[Args]):
             w.writerows([name, tv, *faults] for tv, faults in fault_coverage_list)
 
 
-def fault_coverage(circuit: CircuitSimulator, args: Type[Args]):
+def fault_coverage(circuit: Union[CircuitSimulator, ScanCircuitSimulator], args: Type[Args]):
     result = circuit.run_batch(args.seed, args.taps, sequential=args.sequential)
     with open("_%s_remaining_faults.csv" % args.bench, 'w', newline='') as f:
         w = csv.writer(f)
@@ -77,8 +77,9 @@ def main():
     with open(args.bench, 'r') as f:
         line: str
         for line in f:
-            if line.startswith("DFF"):
+            if line.find("DFF") != -1:
                 args.sequential = True
+                break
         # pass
     if args.sequential:
         circuit_simulator = ScanCircuitSimulator(**vars(args))

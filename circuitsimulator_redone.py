@@ -80,7 +80,7 @@ class CircuitSimulator:
         for node, value in zip(self.nodes.input_nodes.values(), test_vector):
             node.vector_assignment = value
             node.value = value
-        self.propagate(self.nodes.input_propagation_path)
+        self.propagate(self.nodes.full_propagation_path)
 
     @contextmanager
     def apply_fault(self, fault: Fault) -> Generator[Value, None, None]:
@@ -103,7 +103,7 @@ class CircuitSimulator:
 
     def detect_faults(self, tv: TestVector) -> List[Fault]:
         self.apply_vector(tv)
-        self.propagate(self.nodes.input_propagation_path)
+        self.propagate(self.nodes.full_propagation_path)
         return [fault for fault in self.faults if self.detect_fault(fault)]
 
     def detect_and_eliminate_faults(self, tv: TestVector, faults: Set[Fault]) -> List[Fault]:
@@ -136,7 +136,8 @@ class CircuitSimulator:
         """
         if lookup_dict is None:
             lookup_dict = {}
-        input_bits = len(self.nodes.input_nodes)
+
+        input_bits = len(self.nodes.scan_in_nodes)
         test_vectors = TestVectorGenerator(seed, input_bits, taps)() if taps else \
             TestVectorGenerator.from_counter(seed, input_bits)
         test_vectors = [test_vector[:input_bits] for test_vector in test_vectors]
@@ -364,16 +365,16 @@ class CircuitSimulator:
             return ', '.join(repr(node) for node in self._nodes.values())
 
         @functools.cached_property
-        def input_propagation_path(self) -> List[Set[Node]]:
+        def full_propagation_path(self) -> List[Set[Node]]:
             result = [frontier := {
                 output_node for node
-                in self.input_nodes.values()
-                for output_node in node.output_nodes
+                in self.scan_in_nodes
+                for output_node in node.outputs_that_are_not_flip_flops
             }]
             while (frontier := {
                 output_node for node
                 in frontier
-                for output_node in node.output_nodes
+                for output_node in node.outputs_that_are_not_flip_flops
             }):
                 result.append(frontier)
             return result
