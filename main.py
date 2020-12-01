@@ -26,9 +26,11 @@ class Args(argparse.Namespace):
     verbose: bool
     compare: bool
 
+
 def fault_coverage_comparison(circuit: Union[CircuitSimulator, ScanCircuitSimulator], args: Type[Args]):
     results = [
-        (name, circuit.run_batch(args.seed, taps, get_all_coverage=False, sequential=args.sequential).fault_coverage_list)
+        (name,
+         circuit.run_batch(args.seed, taps, get_all_coverage=False, sequential=args.sequential).fault_coverage_list)
         for (name, taps) in configs
     ]
     with open("_%s_seed_%s.csv" % (args.bench, hex(args.seed)), 'w') as f:
@@ -55,6 +57,7 @@ def fault_coverage(circuit: Union[CircuitSimulator, ScanCircuitSimulator], args:
         for tv, faults in result.fault_coverage_list:
             tv_writer.writerow([str(tv)])
             fault_writer.writerow(faults)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -85,13 +88,12 @@ def main():
         circuit_simulator = ScanCircuitSimulator(**vars(args))
     else:
         circuit_simulator = CircuitSimulator(**vars(args))
-
-    # begin = time()
+    print("%s faults" % len(circuit_simulator.faults))
     if args.compare:
         fault_coverage_comparison(circuit_simulator, args)
     else:
         fault_coverage(circuit_simulator, args)
-    # print("Ran in %s" % (time()-begin))
+
 
 if __name__ == '__main__':
     begin = time()
