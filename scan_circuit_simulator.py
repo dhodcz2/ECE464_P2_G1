@@ -1,4 +1,4 @@
-from circuitsimulator_redone import *
+from circuitsimulator import *
 from itertools import zip_longest
 
 
@@ -203,6 +203,10 @@ class ScanNode(Node):
 
 class ScanInputFault(ScanNode):
     __slots__ = 'output_nodes', 'genuine_node', 'stuck_at'
+
+    # @functools.lru_cache(512)
+    # def __new__(cls, output_node: Node, node: Node, stuck_at: Value):
+    #     return super(ScanInputFault, cls).__new__(cls)
 
     def __init__(self, output_node: Node, node: Node, stuck_at: Value):
         self.genuine_node = node

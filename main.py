@@ -88,7 +88,7 @@ def main():
         circuit_simulator = ScanCircuitSimulator(**vars(args))
     else:
         circuit_simulator = CircuitSimulator(**vars(args))
-    print("%s faults" % len(circuit_simulator.faults))
+    # print("%s faults" % len(circuit_simulator.faults))
     if args.compare:
         fault_coverage_comparison(circuit_simulator, args)
     else:

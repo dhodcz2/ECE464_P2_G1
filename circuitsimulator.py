@@ -1,115 +1,38 @@
-from testvector import *
 from collections import defaultdict
-from nodes import *
+import collections
 from faults import *
+from nodes import *
+from testvector import *
 from re import match
 import itertools
 import functools
 import exceptions
-from typing import Optional, DefaultDict, Generic
+from typing import Optional, DefaultDict, List, OrderedDict
+from contextlib import contextmanager
+from dataclasses import dataclass
 
 
-class Node(Node):
-    @property
-    def local_faults(self) -> List[Fault]:
-        faults = [Fault(self, Value(0)), Fault(self, Value(1))]
-        faults.extend(
-            fault for faults in (
-                (Fault(self, Value(0), input_node), Fault(self, Value(1), input_node))
-                for input_node in self.input_nodes
-                if len(input_node.output_nodes) > 1
-            )
-            for fault in faults
-        )
-        return faults
+def propagate(path: Iterable[Set[Node]]):
+    for nodes in path:
+        for node in nodes:
+            node.logic()
+        for node in nodes:
+            node.update()
 
 
 class CircuitSimulator:
     def __init__(self, **kwargs):
-        self.kwargs = kwargs
-        gates = self.LineParser(kwargs['bench']).parse_file()
-        self.nodes = self.compile(gates)
-        self.faulty_node: Optional[Node, InputFault] = None
+        self.faulty_node: Optional[Node, InputFault] = Node
         self.fault: Optional[Fault] = None
-        self.active_nodes: Set[Node] = set()
-        self.leftover_nodes: Set[Node] = set()
-        self.fault_corridor: Set[Node] = set()
-        self.tv = None
         self.tv_lookup: DefaultDict[TestVector, Set[Fault]] = defaultdict(set)
-
-    def __iter__(self):
-        self.iteration = itertools.count()
-        # self.active_nodes = self.leftover_nodes
-        return self
-
-    def __next__(self):
-        """With each iteration of the generated Iterator, each node is updated,
-        and the outputs of the previous nodes."""
-        if next(self.iteration) < self.cycle_resolution_length:
-            for node in self.active_nodes:
-                node.logic()
-            for node in self.active_nodes:
-                node.update()
-            for node in self.fault_corridor:
-                node.logic()
-            for node in self.fault_corridor:
-                node.update()
-            # if self.fault_corridor and not any(node.propagates_fault() for node in self.fault_corridor):
-            #     self.fault_corridor.clear()
-            if any(node.propagates_fault() for node in self.fault_corridor):
-                self.fault_corridor = {
-                    output_node for node in self.fault_corridor
-                    for output_node in node.output_nodes
-                }
-            else:
-                self.fault_corridor.clear()
-            self.active_nodes = {
-                output_node for node in self.active_nodes
-                for output_node in node.output_nodes
-            }
-        else:
-            raise StopIteration
-
-    def cycle(self):
-        for iteration in self:
-            pass
-
-    def __str__(self):
-        return itertools.accumulate((f"{node}\n" for node in self.nodes))
-
-    def apply_vector(self, test_vector: TestVector):
-        self.active_nodes = self.initial_frontier.copy()
-        for node, value in zip(self.nodes.input_nodes.values(), test_vector):
-            node.vector_assignment = value
-            node.value = node.vector_assignment
-
-    #
-    @staticmethod
-    def compile(gates: 'LineParser.Gates') -> 'CircuitSimulator.Nodes':
-        """From the LineParser Gates result, construct the nodes of the circuit"""
-        nodes_instance = CircuitSimulator.Nodes()
-        for name, gate in gates.gates.items():
-            node = Node(gate)
-            node.type = gates.node_types.get(name, "INTERM.")
-            if node.type == "INTERM.":
-                nodes_instance.intermediate_nodes[name] = node
-            elif node.type == "INPUT":
-                nodes_instance.input_nodes[name] = node
-            elif node.type == "OUTPUT":
-                nodes_instance.output_nodes[name] = node
-        for name, input_names in gates.inputs.items():
-            nodes_instance[name].input_nodes = [nodes_instance[input_name] for input_name in input_names]
-            for input_name in input_names:
-                nodes_instance[input_name].output_nodes.append(nodes_instance[name])
-        for name, node_type in gates.node_types.items():
-            nodes_instance[name].type = node_type
-
-        nodes_instance.flip_flops = {node for node in nodes_instance if isinstance(node, FlipFlop)}
-        return nodes_instance
+        self.nodes: CircuitSimulator.Nodes
+        self.kwargs = kwargs
+        self.compile(self.LineParser(kwargs['bench']).parse_file())
+        self.tv: Union[None, TestVector] = None
 
     @staticmethod
     def local_faults(node: Node) -> List[Fault]:
-        """Node SA-0 and SA-1, and an input fault if the input node has fanout"""
+        """Node SA-0 and SA-1, and on input fault if the input node has fanout"""
         faults = [Fault(node, Value(0)), Fault(node, Value(1))]
         faults.extend(
             fault for faults in (
@@ -122,95 +45,62 @@ class CircuitSimulator:
 
     @functools.cached_property
     def faults(self) -> Set[Fault]:
-        """Generate the full fault list of the current circuit; only calculated once"""
-        faults = {
-            fault for faults in
-            (self.local_faults(node) for node in self.nodes)
+        """Full fault list of current circuit"""
+        return {
+            fault for faults in (
+                self.local_faults(node) for node in self.nodes
+            )
             for fault in faults
         }
-        with open("_%s_faults.txt" % self.kwargs['bench'], 'w') as f:
-            for fault in faults:
-                f.write("%s, " % fault)
-        return faults
 
-    @functools.cached_property
-    # TODO: Optimize
-    def cycle_resolution_length(self) -> int:
-        """How many nodes must be traversed for the cycle to be resolved"""
-        count = itertools.count()
-        frontier_nodes: Set[Node] = set(self.nodes.input_nodes.values())
-        while frontier_nodes:
-            next(count)
-            frontier_nodes = {
-                node for output_nodes in
-                (node.output_nodes for node in frontier_nodes)
-                for node in output_nodes
-            }
-        return next(count)
+    def propagate(self, path: Iterable[Set[Node]]):
+        # TODO: If you want to have a pretty printout of values you can uncomment self.iteration_printer
+        # self.iteration_printer = self.IterationPrinter(self.tv, self.fault, self.nodes)
+        for nodes in path:
+            for node in nodes:
+                node.logic()
+            for node in nodes:
+                node.update()
+            # self.iteration_printer(self.nodes)
+        # print(self.iteration_printer)
 
-    @functools.cached_property
-    def pi_length(self) -> int:
-        return len(self.nodes.input_nodes)
+    @staticmethod
+    def propagate_generator(path: Iterable[Set[Node]]) -> Generator[Set[Node], None, None]:
+        for nodes in path:
+            for node in nodes:
+                node.logic()
+            for node in nodes:
+                node.update()
+            yield nodes
 
-    # @functools.cached_property
-    # def initial_frontier(self) -> Set[Node]:
-    #     return {
-    #         output_node for node
-    #         in self.nodes.input_nodes.values()
-    #         for output_node in node.output_nodes
-    #     }
+    def apply_vector(self, test_vector: TestVector):
+        self.tv = test_vector
+        for node, value in zip(self.nodes.input_nodes.values(), test_vector):
+            node.vector_assignment = value
+            node.value = value
+        self.propagate(self.nodes.full_propagation_path)
 
-    @functools.cached_property
-    def input_propagation_path(self) -> List[Set[Node]]:
-        result = [
-            frontier := {
-                output_node for node
-                in self.nodes.input_nodes.values()
-                for output_node in node.output_nodes
-            }
-        ]
-        while frontier:
-            result.append(
-                frontier := {
-                    output_node for node
-                    in self.nodes.input_nodes.values()
-                    for output_node in node.output_nodes
-                }
-            )
-        result.pop()
-
-    def induce_fault(self, fault: Fault):
-        """Applies the fault to the circuit; if the fault is not a fanout fault, it is just set stuck-at.
-        If the fault is fan-out, a InputFault is constructed, whose output_nodes comprises only of the one node"""
-        self.fault = fault  # for debugging
+    @contextmanager
+    def apply_fault(self, fault: Fault) -> Generator[Value, None, None]:
+        self.fault = fault
         if fault.input_node:
-            dummy_node = InputFault(fault.node, fault.input_node, fault.stuck_at)
-            self.nodes.faulty_node = dummy_node
+            self.nodes.faulty_node = InputFault(fault.node, fault.input_node, fault.stuck_at)
         else:
             fault.node.stuck_at = fault.stuck_at
             self.nodes.faulty_node = fault.node
-        self.fault_corridor = {self.nodes.faulty_node.corridor_root}
-
-    def undo_fault(self):
-        """Undo the fault of the circuit"""
-        self.active_nodes.add(self.nodes.faulty_node.corridor_root)
-        self.nodes.faulty_node.reset()
-
-    def fault_detected(self) -> bool:
-        return any(node.propagates_fault() for node in self.nodes.output_nodes.values())
+        backtrack = [nodes for nodes in self.propagate_generator(self.nodes.faulty_node.fault_propagation_path)]
+        yield
+        self.nodes.faulty_node.local_reset()
+        # TODO: Use an integer to specify how many sets should be traversed
+        self.propagate(backtrack)
 
     def detect_fault(self, fault: Fault) -> bool:
-        """Perform one cycle; if any output node is bad, returns True"""
-        self.induce_fault(fault)
-        for iteration in self:
-            pass
-        detected = self.fault_detected()
-        self.undo_fault()
-        return detected
+        with self.apply_fault(fault):
+            return any(node.value.propagates_fault for node in self.nodes.output_nodes.values())
 
-    def detect_faults(self, test_vector: TestVector) -> List[Fault]:
-        """Given a tv, returns faults it may detect."""
-        self.apply_vector(test_vector)
+    def detect_faults(self, tv: TestVector) -> List[Fault]:
+        self.apply_vector(tv)
+        self.propagate(self.nodes.full_propagation_path)
         return [fault for fault in self.faults if self.detect_fault(fault)]
 
     def detect_and_eliminate_faults(self, tv: TestVector, faults: Set[Fault]) -> List[Fault]:
@@ -243,7 +133,8 @@ class CircuitSimulator:
         """
         if lookup_dict is None:
             lookup_dict = {}
-        input_bits = len(self.nodes.input_nodes)
+
+        input_bits = len(self.nodes.scan_in_nodes)
         test_vectors = TestVectorGenerator(seed, input_bits, taps)() if taps else \
             TestVectorGenerator.from_counter(seed, input_bits)
         test_vectors = [test_vector[:input_bits] for test_vector in test_vectors]
@@ -324,9 +215,6 @@ class CircuitSimulator:
                 *(str(line) for line in self.lines)
             ))
 
-            # return f"\n{self.fault}" + (" detected" if self.detected else " undetected") + \
-            #        '\n'.join(str(line) for line in self.lines)
-
         def __call__(self, _nodes: Iterable[Node]):
             """For each node in the circuit, append the value to the printout if it has changed"""
             self.lines[0].values.append(next(self.iteration))
@@ -349,7 +237,8 @@ class CircuitSimulator:
     class LineParser:
         @dataclass
         class Gates:
-            gates: Dict[str, Gate]
+            # gates: OrderedDict[str, Gate]
+            gates: OrderedDict[str, Gate]
             inputs: Dict[str, List[str]]
             node_types: Dict[str, str]
 
@@ -368,7 +257,7 @@ class CircuitSimulator:
             self.file = bench
             self.pattern_gate = "(\S+) = ([A-Z]+)\((.+)\)"
             self.pattern_io = "([A-Z]+)\((.+)\)"
-            self.gates: Dict[str, Gate] = {}
+            self.gates: OrderedDict[str, Gate] = collections.OrderedDict()
             self.inputs: Dict[str, List[str]] = {}
             self.node_types: Dict[str, str] = {}
 
@@ -403,19 +292,52 @@ class CircuitSimulator:
             else:
                 raise exceptions.ParseLineError(line)
 
+    def compile(self, gates: LineParser.Gates):
+        self.nodes = CircuitSimulator.Nodes()
+        for name, gate in gates.gates.items():
+            node = Node(gate)
+            node.type = gates.node_types.get(name, "INTERM.")
+            if node.type == "INTERM.":
+                self.nodes.intermediate_nodes[name] = node
+            elif node.type == "INPUT":
+                self.nodes.input_nodes[name] = node
+            elif node.type == "OUTPUT":
+                self.nodes.output_nodes[name] = node
+            if node.gate.type == "DFF":
+                self.nodes.flip_flops.append(node)
+        for name, input_names in gates.inputs.items():
+            self.nodes[name].input_nodes = [self.nodes[input_name] for input_name in input_names]
+            for input_name in input_names:
+                self.nodes[input_name].output_nodes.append(self.nodes[name])
+        for name, node_type in gates.node_types.items():
+            self.nodes[name].type = node_type
+        pass
+
     class Nodes:
         """A structure of nodes allowing for finding a Node by name, or iterating across specific node types"""
 
         def __init__(self):
-            self.input_nodes: Dict[str, Node] = {}
+            self.input_nodes: OrderedDict[str, Node] = collections.OrderedDict()
             self.intermediate_nodes: Dict[str, Node] = {}
-            self.output_nodes: Dict[str, Node] = {}
-            self.flip_flops: Set[FlipFlop] = set()
-            self.faulty_node: Optional[Node, InputFault] = None
+            self.output_nodes: OrderedDict[str, Node] = collections.OrderedDict()
+            self.flip_flops: List[Node] = []
+            self.faulty_node: Union[InputFault, Node, None] = None
+
+        def capture(self):
+            for flip_flop in self.flip_flops:
+                flip_flop.gate.capture()
 
         @functools.cached_property
         def _nodes(self) -> Dict[str, Node]:
             return {**self.input_nodes, **self.intermediate_nodes, **self.output_nodes}
+
+        @functools.cached_property
+        def scan_in_nodes(self) -> List[Union[Node, InputFault]]:
+            return [*self.input_nodes.values(), *self.flip_flops]
+
+        @functools.cached_property
+        def scan_out_nodes(self) -> List[Union[Node, InputFault]]:
+            return [*self.output_nodes.values(), *self.flip_flops]
 
         def __contains(self, item: str):
             return True if self._nodes.get(item) else False
@@ -437,3 +359,18 @@ class CircuitSimulator:
 
         def __repr__(self):
             return ', '.join(repr(node) for node in self._nodes.values())
+
+        @functools.cached_property
+        def full_propagation_path(self) -> List[Set[Node]]:
+            result = [frontier := {
+                output_node for node
+                in self.scan_in_nodes
+                for output_node in node.outputs_that_are_not_flip_flops
+            }]
+            while (frontier := {
+                output_node for node
+                in frontier
+                for output_node in node.outputs_that_are_not_flip_flops
+            }):
+                result.append(frontier)
+            return result
