@@ -69,9 +69,10 @@ class ScanCircuitSimulator(CircuitSimulator):
         self.nodes.reset_state()
         detected_faults.update(
             fault for fault in undetected_faults
-            if self.identical(scan_out, self.detect_fault(fault))
+            if not self.identical(scan_out, self.detect_fault(fault))
         )
         faults.difference_update(detected_faults)
+        known_faults.update(detected_faults)
         return list(detected_faults)
 
     def compile(self, gates: CircuitSimulator.LineParser.Gates):

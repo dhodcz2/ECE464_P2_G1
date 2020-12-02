@@ -153,7 +153,6 @@ class TestVectorGenerator:
             f.writelines([f"{tv}\n" for tv in result])
         return result
 
-
 class LFSRTest(unittest.TestCase):
     def setUp(self) -> None:
         super(LFSRTest, self).setUp()

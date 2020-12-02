@@ -142,7 +142,7 @@ class CircuitSimulator:
         fault_coverage_all: List[Tuple[TestVector, List[Fault]]] = []
         fault_coverage_list: List[Tuple[TestVector, List[Fault]]] = []
         tv: TestVector
-        faults: List[Fault]
+        # faults: List[Fault]
         if get_all_coverage:
             fault_coverage_all = [
                 (test_vector, self.detect_faults(test_vector))
