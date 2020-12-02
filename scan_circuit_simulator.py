@@ -53,25 +53,38 @@ class ScanCircuitSimulator(CircuitSimulator):
         self.nodes.capture()
         scan_out = self.scan_out()
         self.nodes.reset_state()
-        return [
+        # return [
+        #     fault for fault in self.faults
+        #     if not self.identical(scan_out, self.detect_fault(fault))
+        # ]
+        result = [
             fault for fault in self.faults
             if not self.identical(scan_out, self.detect_fault(fault))
         ]
+        return result
 
-    def detect_and_eliminate_faults(self, tv: TestVector, faults: Set[Fault]) -> List[Fault]:
+
+
+
+    def detect_and_eliminate_faults(self, tv: TestVector, remaining_faults: Set[Fault]) -> List[Fault]:
         known_faults = self.tv_lookup[tv]
-        detected_faults = faults.intersection(known_faults)
-        undetected_faults = faults.difference(known_faults)
+        detected_faults = remaining_faults.intersection(known_faults)
+        undetected_faults = remaining_faults.difference(known_faults)
         self.scan_in(tv)
         self.propagate(self.nodes.full_propagation_path)
         self.nodes.save_state()
+        self.nodes.capture()
         scan_out = self.scan_out()
         self.nodes.reset_state()
+        # result = [
+        #     fault for fault in remaining_faults
+        #     if not self.identical(scan_out, self.detect_fault(fault))
+        # ]
         detected_faults.update(
             fault for fault in undetected_faults
             if not self.identical(scan_out, self.detect_fault(fault))
         )
-        faults.difference_update(detected_faults)
+        remaining_faults.difference_update(detected_faults)
         known_faults.update(detected_faults)
         return list(detected_faults)
 
