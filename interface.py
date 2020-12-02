@@ -10,6 +10,7 @@ def prompt_arguments() -> Dict:
     response: int
     taps: List[int] = []
     counter: bool = False
+    compare: bool
     while True:
         response: str = input("Provide a bench file name (return to accept circuit.bench default): ")
         if not response:
@@ -50,14 +51,25 @@ def prompt_arguments() -> Dict:
             except ValueError:
                 print("Invalid input; please try again")
     while True:
-        option: str = input("Would you like to generate the TV list with LFSR? (Y/N): ")
-        if option == 'n' or option == 'N':
-            counter = True
-            print("Performing TV list generation via counter.")
+        option = input("Do you want to do fault coverage comparison (Y), or just use an individual PRPG? (N)")
+        if option == 'y' or option == 'Y':
+            compare = True
+            print("Comparing with 5 different configurations.")
             break
-        elif option == 'y' or option == 'Y':
-            counter = False
-            print("Performing TV list generation via LFSR.")
+        elif option == 'n' or option == 'N':
+            compare = False
+            while True:
+                option: str = input("Would you like to generate the TV list with LFSR? (Y/N): ")
+                if option == 'n' or option == 'N':
+                    counter = True
+                    print("Performing TV list generation via counter.")
+                    break
+                elif option == 'y' or option == 'Y':
+                    counter = False
+                    print("Performing TV list generation via LFSR.")
+                    break
+                else:
+                    print("Invalid response; please try again")
             break
         else:
             print("Invalid response; please try again")
@@ -80,4 +92,4 @@ def prompt_arguments() -> Dict:
 
 
 
-    return {"bench": bench, "verbose": verbose, "seed": seed, "taps": taps, "counter": counter}
+    return {"bench": bench, "verbose": verbose, "seed": seed, "taps": taps, "counter": counter, "compare": compare}
